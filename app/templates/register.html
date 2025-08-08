@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Create your account</h2>
+<form id="register-form" class="form" onsubmit="return submitForm(event)">
+  <label>Email
+    <input name="email" type="email" required />
+  </label>
+  <label>Full name
+    <input name="full_name" type="text" required />
+  </label>
+  <fieldset class="roles">
+    <legend>Roles</legend>
+    <label><input type="checkbox" name="is_client" checked /> Client</label>
+    <label><input type="checkbox" name="is_provider" /> Provider</label>
+    <label><input type="checkbox" name="is_admin" /> Admin</label>
+  </fieldset>
+  <button class="btn" type="submit">Register</button>
+</form>
+
+<div id="result" class="result" hidden></div>
+
+<script>
+async function submitForm(e) {
+  e.preventDefault();
+  const form = e.target;
+  const data = {
+    email: form.email.value,
+    full_name: form.full_name.value,
+    is_client: form.is_client.checked,
+    is_provider: form.is_provider.checked,
+    is_admin: form.is_admin.checked
+  };
+  const res = await fetch("/api/v1/users/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  const out = document.getElementById("result");
+  out.hidden = false;
+  if (res.ok) {
+    const user = await res.json();
+    out.className = "result ok";
+    out.textContent = "Success! User ID " + user.id + " created for " + user.full_name;
+    form.reset();
+    form.is_client.checked = true;
+  } else {
+    const err = await res.json().catch(() => ({detail: "Unknown error"}));
+    out.className = "result error";
+    out.textContent = "Error: " + (err.detail || res.statusText);
+  }
+  return false;
+}
+</script>
+{% endblock %}
