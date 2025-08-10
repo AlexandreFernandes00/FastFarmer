@@ -4,14 +4,14 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from ...database import get_db
 from ...models.user import User
-from ...schemas.user import UserCreate, UserRead
+from ...schemas.user import UserRegister, UserRead
 from ...utils.security import get_password_hash, verify_password, create_access_token
 from ...dependencies.auth import get_current_user
 
 router = APIRouter()
 
 @router.post("/register", response_model=UserRead, status_code=201)
-def register(payload: UserCreate, db: Session = Depends(get_db)):
+def register(payload: UserRegister, db: Session = Depends(get_db)):
     email = payload.email.strip().lower()
     existing = db.query(User).filter(User.email == email).first()
     if existing:
