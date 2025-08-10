@@ -9,7 +9,7 @@ class CustomerType(str, Enum):
     both = "both"
 
 # Keep this name for compatibility with your routes
-class UserCreate(BaseModel):
+class UserRegister(BaseModel):
     email: EmailStr
     full_name: str
     phone: Optional[str] = None
