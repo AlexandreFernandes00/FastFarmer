@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Dashboard</h2>
+
+<div id="gate" class="card" hidden>
+  <p>You’re not signed in.</p>
+  <p><a class="btn" href="/login">Go to Login</a></p>
+</div>
+
+<div id="content" hidden>
+  <section class="card" id="me">
+    <h3>Welcome, <span id="name">...</span></h3>
+    <p><strong>Email:</strong> <span id="email">...</span></p>
+    <p>
+      <strong>Roles:</strong>
+      <span id="roles">...</span>
+    </p>
+    <div style="margin-top:.5rem;">
+      <button class="btn btn-outline" onclick="logout()">Logout</button>
+    </div>
+  </section>
+
+  <section class="grid" style="margin-top:1rem;">
+    <div class="card" id="clientBox" hidden>
+      <h3>Client profile</h3>
+      <p id="clientStatus">Checking…</p>
+      <div id="clientActions"></div>
+    </div>
+
+    <div class="card" id="providerBox" hidden>
+      <h3>Provider profile</h3>
+      <p id="providerStatus">Checking…</p>
+      <div id="providerActions"></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:1rem;">
+    <h3>Next actions</h3>
+    <ul>
+      <li><a href="/register">Create another account</a> (for testing)</li>
+      <li><em>Coming soon:</em> Manage machines, listings, fields, bookings</li>
+    </ul>
+  </section>
+</div>
+
+<div id="msg" class="result" hidden></div>
+
+<script>
+const API = "/api/v1";
+const token = localStorage.getItem("token");
+
+function authHeaders() {
+  return token ? { "Authorization": "Bearer " + token } : {};
+}
+function show(el, yes = true) { el.hidden = !yes; }
+function text(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+function msgOk(t) { const m = document.getElementById("msg"); m.className="result ok"; m.hidden=false; m.textContent=t; }
+function msgErr(t) { const m = document.getElementById("msg"); m.className="result error"; m.hidden=false; m.textContent=t; }
+
+function logout() { localStorage.removeItem("token"); location.href="/login"; }
+
+(async function init() {
+  if (!token) {
+    show(document.getElementById("gate"), true);
+    return;
+  }
+
+  try {
+    // /me
+    const r = await fetch(`${API}/auth/me`, { headers: authHeaders() });
+    if (!r.ok) throw new Error("Unauthorized");
+    const me = await r.json();
+
+    show(document.getElementById("content"), true);
+    text("name", me.full_name || "User");
+    text("email", me.email);
+    const roles = [];
+    if (me.is_client) roles.push("Client");
+    if (me.is_provider) roles.push("Provider");
+    if (me.is_admin) roles.push("Admin");
+    text("roles", roles.join(", ") || "—");
+
+    // Client profile box only if user is client
+    if (me.is_client) {
+      const box = document.getElementById("clientBox");
+      show(box, true);
+      await loadClientProfile();
+    }
+
+    // Provider profile box only if user is provider
+    if (me.is_provider) {
+      const box = document.getElementById("providerBox");
+      show(box, true);
+      await loadProviderProfile();
+    }
+
+  } catch (e) {
+    show(document.getElementById("gate"), true);
+  }
+})();
+
+async function loadClientProfile() {
+  const status = document.getElementById("clientStatus");
+  const actions = document.getElementById("clientActions");
+  actions.innerHTML = "";
+  status.textContent = "Checking…";
+
+  const r = await fetch(`${API}/me/client-profile`, { headers: authHeaders() });
+  if (r.status === 404) {
+    status.textContent = "No client profile yet.";
+    const btn = document.createElement("button");
+    btn.className = "btn";
+    btn.textContent = "Create client profile";
+    btn.onclick = async () => {
+      const res = await fetch(`${API}/me/client-profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: "{}"
+      });
+      if (res.ok) {
+        msgOk("Client profile created.");
+        loadClientProfile();
+      } else {
+        const e = await res.json().catch(()=>({detail:"Error"}));
+        msgErr(e.detail || "Could not create client profile");
+      }
+    };
+    actions.appendChild(btn);
+  } else if (r.ok) {
+    const prof = await r.json();
+    status.textContent = "Profile is set up.";
+    const view = document.createElement("div");
+    view.innerHTML = `<p><strong>Rating:</strong> ${prof.rating_avg ?? 0} (${prof.rating_count} reviews)</p>`;
+    actions.appendChild(view);
+  } else {
+    status.textContent = "Error loading client profile.";
+  }
+}
+
+async function loadProviderProfile() {
+  const status = document.getElementById("providerStatus");
+  const actions = document.getElementById("providerActions");
+  actions.innerHTML = "";
+  status.textContent = "Checking…";
+
+  const r = await fetch(`${API}/me/provider-profile`, { headers: authHeaders() });
+  if (r.status === 404) {
+    status.textContent = "No provider profile yet.";
+    const form = document.createElement("form");
+    form.className = "form";
+    form.innerHTML = `
+      <label>Business name
+        <input name="business_name" type="text" />
+      </label>
+      <label>Tax ID
+        <input name="tax_id" type="text" />
+      </label>
+      <label>Service radius (km)
+        <input name="service_radius_km" type="number" min="0" step="0.1" />
+      </label>
+      <button class="btn" type="submit">Create provider profile</button>
+    `;
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const payload = {
+        business_name: e.target.business_name.value || null,
+        tax_id: e.target.tax_id.value || null,
+        service_radius_km: e.target.service_radius_km.value ? Number(e.target.service_radius_km.value) : null
+      };
+      const res = await fetch(`${API}/me/provider-profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        msgOk("Provider profile created.");
+        loadProviderProfile();
+      } else {
+        const err = await res.json().catch(()=>({detail:"Error"}));
+        msgErr(err.detail || "Could not create provider profile");
+      }
+    };
+    actions.appendChild(form);
+  } else if (r.ok) {
+    const prof = await r.json();
+    status.textContent = "Profile is set up.";
+    const view = document.createElement("div");
+    view.innerHTML = `
+      <p><strong>Business:</strong> ${prof.business_name ?? "—"}</p>
+      <p><strong>Tax ID:</strong> ${prof.tax_id ?? "—"}</p>
+      <p><strong>Radius (km):</strong> ${prof.service_radius_km ?? "—"}</p>
+      <div style="margin-top:.5rem;">
+        <button class="btn btn-outline" onclick="editProvider()">Edit</button>
+      </div>
+    `;
+    actions.appendChild(view);
+  } else {
+    status.textContent = "Error loading provider profile.";
+  }
+}
+
+function editProvider() {
+  msgOk("Edit flow coming next. For now, delete and recreate via API.");
+}
+</script>
+{% endblock %}
