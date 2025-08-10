@@ -7,7 +7,10 @@ from .api.v1 import profiles as profiles_routes
 from .api.v1 import machines as machines_routes
 from .api.v1 import listings as listings_routes
 from .api.v1 import pricing as pricing_routes
+from .api.v1 import categories as categories_routes
 from .web import router as web_router
+
+
 
 
 app = FastAPI(title=settings.PROJECT_NAME)
@@ -23,6 +26,7 @@ app.include_router(users.router, prefix=f"{settings.API_V1_PREFIX}/users", tags=
 app.include_router(machines_routes.router, prefix=f"{settings.API_V1_PREFIX}/machines", tags=["machines"])
 app.include_router(listings_routes.router, prefix=f"{settings.API_V1_PREFIX}/listings", tags=["listings"])
 app.include_router(pricing_routes.router, prefix=f"{settings.API_V1_PREFIX}/pricing", tags=["pricing"])
+app.include_router(categories_routes.router, prefix=f"{settings.API_V1_PREFIX}/categories", tags=["categories"])
 
 @app.get("/healthz")
 def healthz():
