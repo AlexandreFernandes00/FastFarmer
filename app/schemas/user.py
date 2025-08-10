@@ -1,36 +1,32 @@
-from pydantic import BaseModel, EmailStr, constr
+from typing import Optional
+from uuid import UUID
 from enum import Enum
+from pydantic import BaseModel, EmailStr, constr, ConfigDict
 
-class UserBase(BaseModel):
-    email: EmailStr
-    full_name: str
-    is_client: bool = True
-    is_provider: bool = False
-    is_admin: bool = False
-
-class UserCreate(UserBase):
-    pass
 
 class CustomerType(str, Enum):
     client = "client"
     provider = "provider"
     both = "both"
 
+
+# Public registration payload (no admin flag here)
 class UserRegister(BaseModel):
     email: EmailStr
     full_name: str
-    phone: str | None = None
-    password: constr(min_length=8)  # basic server-side length check
+    phone: Optional[str] = None
+    password: constr(min_length=8)
     customer_type: CustomerType
 
+
+# Public response shape
 class UserRead(BaseModel):
-    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
     email: EmailStr
     full_name: str
-    phone: str | None = None
+    phone: Optional[str] = None
     is_client: bool
     is_provider: bool
-    is_admin: bool
-
-    class Config:
-        orm_mode = True
+    is_admin: bool  # will always be False from public register

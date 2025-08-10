@@ -1,14 +1,33 @@
-from sqlalchemy import Column, String, Boolean, Integer
+import uuid
+from sqlalchemy import Column, String, Boolean, DateTime, text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from ..database import Base
+
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    # UUID primary key
+    id = Column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,                    # app-side default
+        server_default=text("uuid_generate_v4()")  # db-side default (if extension enabled)
+    )
+
+    # Core fields
     email = Column(String, unique=True, nullable=False, index=True)
     full_name = Column(String, nullable=False)
-    phone = Column(String)  # <-- NEW
-    password_hash = Column(String, nullable=False)  # <-- NEW
-    is_client = Column(Boolean, default=True)
-    is_provider = Column(Boolean, default=False)
-    is_admin = Column(Boolean, default=False)
+    phone = Column(String)
+
+    # Auth
+    password_hash = Column(String, nullable=False)
+
+    # Roles
+    is_client = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    is_provider = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    is_admin = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+
+    # Timestamps (match schema defaults)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
