@@ -4,7 +4,7 @@ class Settings:
     PROJECT_NAME: str = "FastFarmer v0.1"
     API_V1_PREFIX: str = "/api/v1"
 
-    _url = os.getenv("DATABASE_URL", "postgresql://...")  # your default
+    _url = os.getenv("DATABASE_URL", "postgresql://koyeb-adm:npg_PND1qt8ckuvM@ep-bitter-bush-a2xswfkn.eu-central-1.pg.koyeb.app/koyebdb")
     if _url.startswith("postgres://"):
         _url = _url.replace("postgres://", "postgresql://", 1)
     DATABASE_URL: str = _url
