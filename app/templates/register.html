@@ -76,6 +76,18 @@ async function submitForm(e) {
     resBox.textContent = "Error: " + (err.detail || res.statusText);
   }
   return false;
+
+  // after successful register:
+const loginRes = await fetch("/api/v1/auth/login", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email: user.email, password: form.password.value })
+});
+if (loginRes.ok) {
+  const { access_token } = await loginRes.json();
+  localStorage.setItem("token", access_token);
+  // redirect or show logged-in UI
+}
 }
 </script>
 {% endblock %}
