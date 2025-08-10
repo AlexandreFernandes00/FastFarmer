@@ -7,6 +7,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String, unique=True, nullable=False, index=True)
     full_name = Column(String, nullable=False)
+    phone = Column(String)  # <-- NEW
+    password_hash = Column(String, nullable=False)  # <-- NEW
     is_client = Column(Boolean, default=True)
     is_provider = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False)

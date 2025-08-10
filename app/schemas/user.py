@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, constr
+from enum import Enum
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -10,8 +11,26 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     pass
 
-class UserRead(UserBase):
+class CustomerType(str, Enum):
+    client = "client"
+    provider = "provider"
+    both = "both"
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    full_name: str
+    phone: str | None = None
+    password: constr(min_length=8)  # basic server-side length check
+    customer_type: CustomerType
+
+class UserRead(BaseModel):
     id: int
+    email: EmailStr
+    full_name: str
+    phone: str | None = None
+    is_client: bool
+    is_provider: bool
+    is_admin: bool
 
     class Config:
         orm_mode = True
