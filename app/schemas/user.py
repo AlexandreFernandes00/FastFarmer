@@ -2,6 +2,9 @@ from typing import Optional
 from uuid import UUID
 from enum import Enum
 from pydantic import BaseModel, EmailStr, constr, ConfigDict
+from typing import Optional
+
+
 
 class CustomerType(str, Enum):
     client = "client"
@@ -25,3 +28,8 @@ class UserRead(BaseModel):
     is_client: bool
     is_provider: bool
     is_admin: bool
+
+
+class UserUpdateMe(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None

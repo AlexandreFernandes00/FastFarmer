@@ -1,38 +1,49 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Create your account</h2>
-<form id="register-form" class="form" onsubmit="return submitForm(event)">
+
+<form id="register-form" class="form" onsubmit="return submitForm(event)" novalidate>
   <label>Email
-    <input name="email" type="email" required />
-  </label>
-  <label>Full name
-    <input name="full_name" type="text" required />
-  </label>
-  <label>Phone (optional)
-    <input name="phone" type="tel" />
+    <input name="email" type="email" autocomplete="email" required />
   </label>
 
-  <label>Password (min 8 chars)
-    <input name="password" type="password" minlength="8" required />
+  <label>Full name
+    <input name="full_name" type="text" autocomplete="name" required />
   </label>
-  <label>Confirm password
-    <input name="password2" type="password" minlength="8" required />
+
+  <label>Phone (optional)
+    <input name="phone" type="tel" autocomplete="tel" />
   </label>
+
+  <div class="grid" style="grid-template-columns: 1fr 1fr; gap: .75rem;">
+    <label>Password (min 8 chars)
+      <input name="password" type="password" minlength="8" autocomplete="new-password" required />
+    </label>
+    <label>Confirm password
+      <input name="password2" type="password" minlength="8" autocomplete="new-password" required />
+    </label>
+  </div>
 
   <label>Customer type
     <select name="customer_type" required>
-      <option value="client" selected>Client (hire services / rent equipment)</option>
-      <option value="provider">Provider (offer services / rent equipment)</option>
+      <option value="client" selected>Client — hire services / rent equipment</option>
+      <option value="provider">Provider — offer services / rent equipment</option>
       <option value="both">Both</option>
     </select>
   </label>
 
-  <label class="roles">
+  <label class="roles" style="display:flex;align-items:center;gap:.5rem;">
     <input type="checkbox" name="agree" required />
     I agree to the Terms & Privacy
   </label>
 
-  <button class="btn" type="submit">Register</button>
+  <div style="display:flex;gap:.5rem;align-items:center;">
+    <button class="btn" type="submit">Create account</button>
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:.9rem;">
+      <input type="checkbox" id="autoLogin" checked />
+      Sign me in after registration
+    </label>
+  </div>
 </form>
 
 <div id="result" class="result" hidden></div>
@@ -41,53 +52,93 @@
 async function submitForm(e) {
   e.preventDefault();
   const form = e.target;
-  const resBox = document.getElementById("result");
+  const out = document.getElementById("result");
+  out.hidden = true;
+  out.className = "result";
 
+  // Basic client-side checks
+  if (!form.email.value.trim() || !form.full_name.value.trim()) {
+    return showError("Please fill in email and full name.");
+  }
+  if (form.password.value.length < 8) {
+    return showError("Password must be at least 8 characters.");
+  }
   if (form.password.value !== form.password2.value) {
-    resBox.hidden = false;
-    resBox.className = "result error";
-    resBox.textContent = "Passwords do not match.";
-    return false;
+    return showError("Passwords do not match.");
+  }
+  if (!form.agree.checked) {
+    return showError("You must agree to the Terms & Privacy.");
   }
 
   const payload = {
-    email: form.email.value,
-    full_name: form.full_name.value,
-    phone: form.phone.value || null,
+    email: form.email.value.trim().toLowerCase(),
+    full_name: form.full_name.value.trim(),
+    phone: form.phone.value.trim() || null,
     password: form.password.value,
-    customer_type: form.customer_type.value
+    customer_type: form.customer_type.value  // "client" | "provider" | "both"
   };
 
-  const res = await fetch("/api/v1/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  try {
+    // Create account
+    const res = await fetch("/api/v1/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
-  resBox.hidden = false;
-  if (res.ok) {
+    if (!res.ok) {
+      const err = await safeJson(res);
+      const msg = (err && err.detail) ? err.detail : res.statusText;
+      return showError("Registration failed: " + msg);
+    }
+
     const user = await res.json();
-    resBox.className = "result ok";
-    resBox.textContent = "Success! Account created for " + user.full_name;
+    showOk("Success! Account created for " + user.full_name);
+
+    // Auto-login (optional)
+    if (document.getElementById("autoLogin").checked) {
+      const loginRes = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: payload.email, password: payload.password })
+      });
+
+      if (loginRes.ok) {
+        const { access_token } = await loginRes.json();
+        localStorage.setItem("token", access_token);
+        showOk("You're signed in. Redirecting…");
+        // Redirect to a next-step page when you have one (e.g., /dashboard or /me)
+        // location.href = "/"; // uncomment when ready
+      } else {
+        // If login fails, keep the successful registration message visible
+        const err = await safeJson(loginRes);
+        console.warn("Auto-login failed:", err);
+        showOk("Account created. Please sign in from the login page.");
+      }
+    }
+
     form.reset();
-  } else {
-    const err = await res.json().catch(() => ({detail: "Unknown error"}));
-    resBox.className = "result error";
-    resBox.textContent = "Error: " + (err.detail || res.statusText);
+  } catch (err) {
+    console.error(err);
+    showError("Unexpected error. Please try again.");
   }
+
   return false;
 
-  // after successful register:
-const loginRes = await fetch("/api/v1/auth/login", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email: user.email, password: form.password.value })
-});
-if (loginRes.ok) {
-  const { access_token } = await loginRes.json();
-  localStorage.setItem("token", access_token);
-  // redirect or show logged-in UI
-}
+  function showError(msg) {
+    out.hidden = false;
+    out.className = "result error";
+    out.textContent = msg;
+    return false;
+  }
+  function showOk(msg) {
+    out.hidden = false;
+    out.className = "result ok";
+    out.textContent = msg;
+  }
+  async function safeJson(r) {
+    try { return await r.json(); } catch { return null; }
+  }
 }
 </script>
 {% endblock %}
