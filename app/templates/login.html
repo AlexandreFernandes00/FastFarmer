@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Sign in</h2>
+
+<form id="login-form" class="form" onsubmit="return login(event)" novalidate>
+  <label>Email
+    <input name="email" type="email" autocomplete="email" required />
+  </label>
+
+  <label>Password
+    <input name="password" type="password" autocomplete="current-password" required />
+  </label>
+
+  <div style="display:flex;gap:.5rem;align-items:center;">
+    <button class="btn" type="submit">Login</button>
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:.9rem;">
+      <input type="checkbox" id="useOauthForm" />
+      Use OAuth2 form endpoint
+    </label>
+  </div>
+</form>
+
+<div id="result" class="result" hidden></div>
+
+<script>
+async function login(e) {
+  e.preventDefault();
+  const form = e.target;
+  const out = document.getElementById("result");
+  out.hidden = true; out.className = "result";
+
+  const email = form.email.value.trim().toLowerCase();
+  const password = form.password.value;
+
+  if (!email || !password) {
+    return showError("Please enter both email and password.");
+  }
+
+  try {
+    let res;
+    if (document.getElementById("useOauthForm").checked) {
+      // OAuth2 password flow: POST /api/v1/auth/token (form-encoded)
+      const params = new URLSearchParams();
+      params.set("username", email);
+      params.set("password", password);
+      res = await fetch("/api/v1/auth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params
+      });
+    } else {
+      // JSON login: POST /api/v1/auth/login
+      res = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+    }
+
+    if (!res.ok) {
+      const err = await safeJson(res);
+      return showError("Login failed: " + ((err && err.detail) || res.statusText));
+    }
+
+    const { access_token } = await res.json();
+    if (!access_token) return showError("No token returned.");
+
+    localStorage.setItem("token", access_token);
+    showOk("Logged in! Redirecting…");
+    // TODO: change to your desired destination:
+    // location.href = "/"; 
+  } catch (err) {
+    console.error(err);
+    showError("Unexpected error. Please try again.");
+  }
+
+  return false;
+
+  function showError(msg) {
+    out.hidden = false; out.className = "result error"; out.textContent = msg; return false;
+  }
+  function showOk(msg) {
+    out.hidden = false; out.className = "result ok"; out.textContent = msg;
+  }
+  async function safeJson(r) { try { return await r.json(); } catch { return null; } }
+}
+</script>
+{% endblock %}

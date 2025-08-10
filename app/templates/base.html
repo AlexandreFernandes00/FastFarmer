@@ -12,6 +12,7 @@
     <nav>
       <a href="/">Home</a>
       <a href="/register">Register</a>
+      <a href="/login">Login</a>
       <a href="/docs">API</a>
     </nav>
   </header>
@@ -23,3 +24,17 @@
   </footer>
 </body>
 </html>
+<script>
+  // simple client-side toggle
+  (function(){
+    const nav = document.querySelector("nav");
+    if (!nav) return;
+    if (localStorage.getItem("token")) {
+      const a = document.createElement("a");
+      a.href="#"; a.textContent="Logout";
+      a.onclick = () => { localStorage.removeItem("token"); location.reload(); };
+      nav.appendChild(a);
+    }
+  })();
+</script>
+
