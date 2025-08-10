@@ -20,3 +20,7 @@ def login_page(request: Request):
 @router.get("/dashboard")
 def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
+@router.get("/machines")
+def machines_page(request: Request):
+    return templates.TemplateResponse("machines.html", {"request": request})

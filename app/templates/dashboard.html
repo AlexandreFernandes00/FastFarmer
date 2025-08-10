@@ -202,5 +202,58 @@ async function loadProviderProfile() {
 function editProvider() {
   msgOk("Edit flow coming next. For now, delete and recreate via API.");
 }
+
+<!-- inside <script> of dashboard.html -->
+async function loadProviderProfile() {
+  const status = document.getElementById("providerStatus");
+  const actions = document.getElementById("providerActions");
+  actions.innerHTML = "";
+  status.textContent = "Checking…";
+
+  const r = await fetch(`${API}/me/provider-profile`, { headers: authHeaders() });
+  if (r.status === 404) {
+    // ... unchanged create form (keep as-is)
+    /* existing no-profile code here */
+  } else if (r.ok) {
+    const prof = await r.json();
+    status.textContent = "Profile is set up.";
+    const view = document.createElement("div");
+    view.innerHTML = `
+      <p><strong>Business:</strong> ${prof.business_name ?? "—"}</p>
+      <p><strong>Tax ID:</strong> ${prof.tax_id ?? "—"}</p>
+      <p><strong>Radius (km):</strong> ${prof.service_radius_km ?? "—"}</p>
+      <div style="margin:.5rem 0 1rem;">
+        <a class="btn" href="/machines">Manage machines</a>
+      </div>
+      <div id="myMachines"><em>Loading machines…</em></div>
+    `;
+    actions.appendChild(view);
+
+    // Load machines preview
+    try{
+      const mr = await fetch(`${API}/machines/`, { headers: authHeaders() });
+      if(mr.ok){
+        const machines = await mr.json();
+        const box = view.querySelector("#myMachines");
+        if(!machines.length){ box.innerHTML = "<p>No machines yet.</p>"; return; }
+        const ul = document.createElement("ul");
+        machines.forEach(m => {
+          const li = document.createElement("li");
+          li.textContent = `${m.make} ${m.model} ${m.year ?? ""} — status: ${m.status}`;
+          ul.appendChild(li);
+        });
+        box.innerHTML = "";
+        box.appendChild(ul);
+      } else {
+        view.querySelector("#myMachines").textContent = "Could not load machines.";
+      }
+    }catch(e){
+      view.querySelector("#myMachines").textContent = "Error loading machines.";
+    }
+  } else {
+    status.textContent = "Error loading provider profile.";
+  }
+}
+
 </script>
 {% endblock %}
