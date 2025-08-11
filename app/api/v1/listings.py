@@ -13,7 +13,7 @@ from ...database import get_db
 from ...dependencies.auth import require_provider
 from ...models.user import User
 from ...models.profile import ProviderProfile
-from ...models.inventory import Listing, PricingRule  # <-- both live here
+from ...models.inventory import Listing, PricingRule  # <-- PricingRule has listing_id FK
 
 router = APIRouter()
 
@@ -56,8 +56,7 @@ def shape_listing_base(l: Listing) -> Dict[str, Any]:
 def shape_price(p: PricingRule) -> Dict[str, Any]:
     return {
         "id": str(p.id),
-        "owner_type": p.owner_type,                  # "listing" | "machine"
-        "owner_id": str(p.owner_id),
+        "listing_id": str(p.listing_id),
         "unit": p.unit,                              # "hour" | "hectare" | "km" | "job"
         "base_price": float(p.base_price) if p.base_price is not None else None,
         "min_qty": p.min_qty,
@@ -71,19 +70,18 @@ def shape_price(p: PricingRule) -> Dict[str, Any]:
 def prices_summary_text(prices: List[Dict[str, Any]]) -> str:
     if not prices:
         return "Ask for a quote"
-    # listing-level first, then machine-level; stable by unit
-    def key(p):
-        return (0 if p.get("owner_type") == "listing" else 1, p.get("unit") or "", p.get("base_price") or 0)
-    parts = []
-    for p in sorted(prices, key=key)[:3]:
+    # stable order by unit then price
+    parts: List[str] = []
+    for p in sorted(prices, key=lambda x: (x.get("unit") or "", x.get("base_price") or 0))[:3]:
         bp = p.get("base_price")
         cur = p.get("currency", "EUR")
         unit = p.get("unit") or ""
         seg = []
         if bp is not None and unit:
-            seg.append(f"{bp:g} {cur} / {unit}")
+            text = f"{bp:g} {cur} / {unit}"
             if p.get("min_qty") not in (None, 0):
-                seg[-1] += f" (min {p['min_qty']})"
+                text += f" (min {p['min_qty']})"
+            seg.append(text)
         tf = p.get("transport_flat_fee")
         tkm = p.get("transport_per_km")
         if tf is not None or tkm is not None:
@@ -108,11 +106,10 @@ def public_listings(
     offset: int = Query(0, ge=0),
 ) -> List[Dict[str, Any]]:
     # Show active or NULL status
+    order_col = getattr(Listing, "created_at", Listing.id)
     stmt = sa.select(Listing).where(
         sa.or_(Listing.status == "active", Listing.status.is_(None))
-    ).order_by(
-        sa.desc(getattr(Listing, "created_at", Listing.id))
-    ).limit(limit).offset(offset)
+    ).order_by(sa.desc(order_col)).limit(limit).offset(offset)
 
     if q:
         like = f"%{q.lower()}%"
@@ -129,42 +126,23 @@ def public_listings(
     if not include_pricing or not rows:
         return shaped
 
-    # Collect owner IDs
     listing_ids = [r.id for r in rows]
-    machine_ids = [r.ref_machine_id for r in rows if getattr(r, "ref_machine_id", None)]
 
-    # Query listing-level pricing
+    # Query listing-level pricing only (Option A)
     by_listing: Dict[UUID, List[Dict[str, Any]]] = {}
     if listing_ids:
-        for p in db.query(PricingRule).filter(
-            PricingRule.owner_type == "listing",
-            PricingRule.owner_id.in_(listing_ids)
-        ).all():
-            by_listing.setdefault(p.owner_id, []).append(shape_price(p))
+        rules = (
+            db.query(PricingRule)
+            .filter(PricingRule.listing_id.in_(listing_ids))
+            .all()
+        )
+        for p in rules:
+            by_listing.setdefault(p.listing_id, []).append(shape_price(p))
 
-    # Query machine-level pricing (fallback)
-    by_machine: Dict[UUID, List[Dict[str, Any]]] = {}
-    if machine_ids:
-        for p in db.query(PricingRule).filter(
-            PricingRule.owner_type == "machine",
-            PricingRule.owner_id.in_(machine_ids)
-        ).all():
-            by_machine.setdefault(p.owner_id, []).append(shape_price(p))
-
-    # Attach pricing to response
+    # Attach pricing
     for item in shaped:
-        prices: List[Dict[str, Any]] = []
         lid = UUID(item["id"])
-        rid = item.get("ref_machine_id")
-        if lid in by_listing:
-            prices.extend(by_listing[lid])
-        if rid:
-            try:
-                rid_uuid = UUID(rid)
-                if rid_uuid in by_machine:
-                    prices.extend(by_machine[rid_uuid])
-            except Exception:
-                pass
+        prices = by_listing.get(lid, [])
         item["pricing"] = prices
         item["prices_text"] = prices_summary_text(prices)
 
@@ -183,20 +161,11 @@ def public_get_one(
     shaped = shape_listing_base(l)
 
     if include_pricing:
-        prices: List[Dict[str, Any]] = []
-        # listing-level
-        for p in db.query(PricingRule).filter(
-            PricingRule.owner_type == "listing",
-            PricingRule.owner_id == listing_id
-        ).all():
-            prices.append(shape_price(p))
-        # machine-level
-        if getattr(l, "ref_machine_id", None):
-            for p in db.query(PricingRule).filter(
-                PricingRule.owner_type == "machine",
-                PricingRule.owner_id == l.ref_machine_id
-            ).all():
-                prices.append(shape_price(p))
+        prices = [
+            shape_price(p) for p in db.query(PricingRule)
+            .filter(PricingRule.listing_id == listing_id)
+            .all()
+        ]
         shaped["pricing"] = prices
         shaped["prices_text"] = prices_summary_text(prices)
 
@@ -210,10 +179,11 @@ def my_listings(
     current: User = Depends(require_provider),
 ) -> List[Dict[str, Any]]:
     prof = get_provider_profile(db, current.id)
+    order_col = getattr(Listing, "created_at", Listing.id)
     rows = (
         db.query(Listing)
         .filter(Listing.provider_id == prof.id)
-        .order_by(sa.desc(getattr(Listing, "created_at", Listing.id)))
+        .order_by(sa.desc(order_col))
         .all()
     )
     return [shape_listing_base(r) for r in rows]
