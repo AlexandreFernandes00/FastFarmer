@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, String, Integer, Numeric, Boolean, DateTime, ForeignKey, Text, CheckConstraint, text
-from sqlalchemy.dialects.postgresql import UUID as PGUUID, ENUM as PGEnum
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, ENUM as PGEnum, JSONB
 from ..database import Base
 
 class Machine(Base):
@@ -67,21 +67,20 @@ class Listing(Base):
 class PricingRule(Base):
     __tablename__ = "pricing_rules"
 
-    id = Column(PGUUID(as_uuid=True), primary_key=True,
-                default=uuid.uuid4, server_default=text("uuid_generate_v4()"))
-
-    # map to existing PostgreSQL ENUM type 'listing_type'
-    owner_type = Column(
-        PGEnum('machine', 'service', name='listing_type', create_type=False),
-        nullable=False
-    )
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(PGEnum('machine','service', name='listing_type', create_type=False), nullable=False)
     owner_id = Column(PGUUID(as_uuid=True), nullable=False)
 
-    unit = unit = Column(PGEnum('hour','hectare','km','job', name='pricing_unit', create_type=False), nullable=False)  # DB has enum 'pricing_unit'; map if you want (see below)
+    # optional: use the DB enum too
+    unit = Column(PGEnum('hour','hectare','km','job', name='pricing_unit', create_type=False), nullable=False)
+    #unit = Column(String, nullable=False)
+
     base_price = Column(Numeric(12,2), nullable=False)
     min_qty = Column(Numeric(12,2), server_default=text("0"))
     transport_flat_fee = Column(Numeric(12,2), server_default=text("0"))
     transport_per_km = Column(Numeric(12,3), server_default=text("0"))
-    surcharges = Column(Text)
+
+    surcharges = Column(JSONB)  # <-- change from Text to JSONB
+
     currency = Column(String, nullable=False, server_default=text("'EUR'"))
 

@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
+import json
+from fastapi import HTTPException
 from ...database import get_db
 from ...models.inventory import PricingRule, Machine
 from ...models.profile import ProviderProfile
@@ -24,6 +26,17 @@ def assert_ownership(db: Session, prof: ProviderProfile, owner_type: str, owner_
     else:
         raise HTTPException(status_code=400, detail="Only machine pricing supported in v0.1")
 
+def _normalize_surcharges(val):
+    if val is None or isinstance(val, dict):
+        return val
+    if isinstance(val, str) and val.strip():
+        try:
+            return json.loads(val)   # let callers send JSON string too
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="surcharges must be a JSON object")
+    return None
+
+
 @router.get("/", response_model=list[PricingRead])
 def list_my_pricing(db: Session = Depends(get_db), current: User = Depends(require_provider)):
     prof = get_provider_profile(db, current.id)
@@ -39,10 +52,11 @@ def create_pricing(payload: PricingCreate, db: Session = Depends(get_db), curren
     prof = get_provider_profile(db, current.id)
     assert_ownership(db, prof, payload.owner_type, payload.owner_id)
 
-    rule = PricingRule(**payload.model_dump(exclude_unset=True))
-    db.add(rule)
-    db.commit()
-    db.refresh(rule)
+    data = payload.model_dump(exclude_unset=True)
+    data["surcharges"] = _normalize_surcharges(data.get("surcharges"))
+
+    rule = PricingRule(**data)
+    db.add(rule); db.commit(); db.refresh(rule)
     return rule
 
 @router.put("/{pricing_id}", response_model=PricingRead)
@@ -52,11 +66,14 @@ def update_pricing(pricing_id: UUID, payload: PricingUpdate, db: Session = Depen
     if not rule:
         raise HTTPException(status_code=404, detail="Pricing rule not found")
     assert_ownership(db, prof, rule.owner_type, rule.owner_id)
-    for k, v in payload.model_dump(exclude_unset=True).items():
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "surcharges" in updates:
+        updates["surcharges"] = _normalize_surcharges(updates["surcharges"])
+    for k, v in updates.items():
         setattr(rule, k, v)
-    db.add(rule)
-    db.commit()
-    db.refresh(rule)
+
+    db.add(rule); db.commit(); db.refresh(rule)
     return rule
 
 @router.delete("/{pricing_id}", status_code=204)

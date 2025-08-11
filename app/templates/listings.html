@@ -87,6 +87,10 @@
             <input id="currency" value="EUR" />
           </label>
         </div>
+        <details>
+          <summary>Surcharges (JSON object, optional)</summary>
+          <textarea id="surcharges" rows="3" placeholder='e.g. {"night_shift":20,"rocky_soil_pct":10}'></textarea>
+        </details>
         <button class="btn" type="submit">Add pricing rule</button>
       </form>
 
@@ -110,17 +114,17 @@ function show(el, yes=true){ el.hidden = !yes; }
 function msgOk(t){ const m=document.getElementById("msg"); m.className="result ok"; m.hidden=false; m.textContent=t; }
 function msgErr(t){ const m=document.getElementById("msg"); m.className="result error"; m.hidden=false; m.textContent=t; }
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+async function safeJson(r){ try{ return await r.json(); }catch{ return null; } }
 
 (async function init(){
-  // gate by auth + role
   if(!token){ show(document.getElementById("gate"), true); return; }
-  try {
+  try{
     const meRes = await fetch(`${API}/auth/me`, { headers: authHeaders() });
     if(!meRes.ok) throw 0;
     const me = await meRes.json();
     if(!me.is_provider) throw 0;
     show(document.getElementById("content"), true);
-  } catch { return show(document.getElementById("gate"), true); }
+  }catch{ return show(document.getElementById("gate"), true); }
 
   await loadMachines();
   await loadListings();
@@ -161,7 +165,7 @@ async function loadListings(){
 
 function renderListings(data){
   const box = document.getElementById("listings");
-  if(!data.length){ box.innerHTML = "<p>No listings yet.</p>"; return; }
+  if(!data.length){ box.innerHTML = "<p>No listings yet.</p>"; clearPricingSelection(); return; }
 
   const table = document.createElement("table");
   table.style.width = "100%"; table.style.borderCollapse = "collapse";
@@ -228,7 +232,6 @@ function machineName(l){
 
 async function createListing(e){
   e.preventDefault();
-  const form = e.target;
   const ref_machine_id = document.getElementById("machineSelect").value;
   if(!ref_machine_id){ msgErr("Pick a machine first."); return false; }
   const payload = {
@@ -243,9 +246,9 @@ async function createListing(e){
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(payload)
   });
-  if(!r.ok){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Create failed"); return false; }
+  if(!r.ok){ const err = await safeJson(r); msgErr(err?.detail || "Create failed"); return false; }
   msgOk("Listing created.");
-  form.reset();
+  e.target.reset();
   await loadListings();
   return false;
 }
@@ -258,7 +261,7 @@ async function editListingStatus(id, current){
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ status: s })
   });
-  if(!r.ok){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Update failed"); return; }
+  if(!r.ok){ const err = await safeJson(r); msgErr(err?.detail || "Update failed"); return; }
   msgOk("Listing updated.");
   await loadListings();
 }
@@ -266,11 +269,12 @@ async function editListingStatus(id, current){
 async function deleteListing(id){
   if(!confirm("Delete this listing?")) return;
   const r = await fetch(`${API}/listings/${id}`, { method: "DELETE", headers: authHeaders() });
-  if(r.status !== 204){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Delete failed"); return; }
+  if(r.status !== 204){ const err = await safeJson(r); msgErr(err?.detail || "Delete failed"); return; }
   msgOk("Listing deleted.");
   await loadListings();
 }
 
+/* -------- Pricing -------- */
 function clearPricingSelection(){
   selectedListing = null;
   show(document.getElementById("pricingBox"), false);
@@ -287,7 +291,6 @@ async function selectListing(l, silent){
 }
 
 async function loadPricing(){
-  // GET /pricing returns all rules for my machines; we filter client-side by owner_id (machine id)
   const box = document.getElementById("pricingList");
   box.innerHTML = "<em>Loading pricing…</em>";
   const r = await fetch(`${API}/pricing/`, { headers: authHeaders() });
@@ -303,7 +306,7 @@ async function loadPricing(){
     <thead>
       <tr>
         <th>Unit</th><th>Base</th><th>Min qty</th>
-        <th>Transport flat</th><th>Per km</th><th>Currency</th>
+        <th>Transport flat</th><th>Per km</th><th>Currency</th><th>Surcharges</th>
         <th style="text-align:right"></th>
       </tr>
     </thead>
@@ -319,6 +322,7 @@ async function loadPricing(){
       <td>${r.transport_flat_fee ?? "—"}</td>
       <td>${r.transport_per_km ?? "—"}</td>
       <td>${esc(r.currency)}</td>
+      <td><code>${esc(formatSurcharges(r.surcharges))}</code></td>
       <td style="text-align:right">
         <button class="btn btn-outline" onclick='editPricing(${JSON.stringify(r)})'>Edit</button>
         <button class="btn btn-outline" onclick='deletePricing("${r.id}")'>Delete</button>
@@ -330,9 +334,26 @@ async function loadPricing(){
   box.appendChild(table);
 }
 
+function formatSurcharges(s){
+  if (!s) return "";
+  try { return JSON.stringify(s); } catch { return ""; }
+}
+
 async function addPricing(e){
   e.preventDefault();
   if(!selectedListing) { msgErr("Select a listing first."); return false; }
+
+  let surObj = null;
+  const raw = document.getElementById("surcharges").value.trim();
+  if (raw) {
+    try { surObj = JSON.parse(raw); }
+    catch { msgErr("Surcharges must be valid JSON (e.g. {\"night_shift\":20})."); return false; }
+    if (typeof surObj !== "object" || Array.isArray(surObj)) {
+      msgErr("Surcharges must be a JSON object (key/value pairs).");
+      return false;
+    }
+  }
+
   const payload = {
     owner_type: "machine",
     owner_id: selectedListing.ref_machine_id,
@@ -341,14 +362,15 @@ async function addPricing(e){
     min_qty: document.getElementById("min_qty").value ? Number(document.getElementById("min_qty").value) : null,
     transport_flat_fee: document.getElementById("transport_flat_fee").value ? Number(document.getElementById("transport_flat_fee").value) : null,
     transport_per_km: document.getElementById("transport_per_km").value ? Number(document.getElementById("transport_per_km").value) : null,
-    currency: document.getElementById("currency").value || "EUR"
+    currency: document.getElementById("currency").value || "EUR",
+    surcharges: surObj
   };
   const r = await fetch(`${API}/pricing/`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(payload)
   });
-  if(!r.ok){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Create pricing failed"); return false; }
+  if(!r.ok){ const err = await safeJson(r); msgErr(err?.detail || "Create pricing failed"); return false; }
   msgOk("Pricing rule added.");
   e.target.reset();
   await loadPricing();
@@ -363,7 +385,7 @@ async function editPricing(rule){
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ base_price: Number(base) })
   });
-  if(!r.ok){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Update failed"); return; }
+  if(!r.ok){ const err = await safeJson(r); msgErr(err?.detail || "Update failed"); return; }
   msgOk("Pricing updated.");
   await loadPricing();
 }
@@ -371,7 +393,7 @@ async function editPricing(rule){
 async function deletePricing(id){
   if(!confirm("Delete this pricing rule?")) return;
   const r = await fetch(`${API}/pricing/${id}`, { method: "DELETE", headers: authHeaders() });
-  if(r.status !== 204){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Delete failed"); return; }
+  if(r.status !== 204){ const err = await safeJson(r); msgErr(err?.detail || "Delete failed"); return; }
   msgOk("Pricing deleted.");
   await loadPricing();
 }

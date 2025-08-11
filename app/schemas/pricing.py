@@ -3,14 +3,14 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, condecimal
 
 class PricingCreate(BaseModel):
-    owner_type: str  # 'machine' | 'service'
+    owner_type: str
     owner_id: UUID
-    unit: str        # 'hour' | 'hectare' | 'km' | 'job'
+    unit: str
     base_price: condecimal(max_digits=12, decimal_places=2)
     min_qty: Optional[condecimal(max_digits=12, decimal_places=2)] = None
     transport_flat_fee: Optional[condecimal(max_digits=12, decimal_places=2)] = None
     transport_per_km: Optional[condecimal(max_digits=12, decimal_places=3)] = None
-    surcharges: Optional[str] = None
+    surcharges: Optional[Dict[str, Any]] = None   # <-- dict
     currency: Optional[str] = "EUR"
 
 class PricingUpdate(BaseModel):
@@ -19,7 +19,7 @@ class PricingUpdate(BaseModel):
     min_qty: Optional[condecimal(max_digits=12, decimal_places=2)] = None
     transport_flat_fee: Optional[condecimal(max_digits=12, decimal_places=2)] = None
     transport_per_km: Optional[condecimal(max_digits=12, decimal_places=3)] = None
-    surcharges: Optional[str] = None
+    surcharges: Optional[Dict[str, Any]] = None   # <-- dict
     currency: Optional[str] = None
 
 class PricingRead(BaseModel):
