@@ -15,6 +15,7 @@
       <select id="unit">
         <option value="">Any</option>
         <option value="hour">per hour</option>
+        <option value="day">per day</option>
         <option value="hectare">per hectare</option>
         <option value="km">per km</option>
         <option value="job">per job</option>
@@ -27,9 +28,9 @@
   </div>
 </div>
 
-<!-- Listings grid -->
+<!-- Listings -->
 <div class="card" style="margin-top:1rem;">
-  <div id="grid" class="grid" style="grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:1rem;">
+  <div id="grid" class="grid" style="grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap:1rem;">
     <p>Loading listings…</p>
   </div>
 </div>
@@ -41,6 +42,7 @@
   <form method="dialog" onsubmit="return false;" style="margin:0;">
     <h3>Request this listing</h3>
     <p id="selListingTitle" style="margin-top:-.25rem;color:#555;"></p>
+
     <div id="requestGate" class="result" style="margin:.75rem 0 .25rem 0; display:none;">
       You must be logged in as a <strong>client</strong> and have at least one field to request work.
       <div style="margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap;">
@@ -49,6 +51,7 @@
         <a class="btn btn-outline" href="/fields">Add a field</a>
       </div>
     </div>
+
     <div id="requestForm" class="form" style="display:none;">
       <label>Choose your field
         <select id="req_field" required></select>
@@ -71,6 +74,7 @@
         <textarea id="req_notes" rows="2" placeholder="Anything the provider should know…"></textarea>
       </label>
     </div>
+
     <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.75rem;">
       <button class="btn btn-outline" onclick="MM_closeRequest()">Cancel</button>
       <button class="btn" id="sendReqBtn" onclick="MM_submitRequest()" style="display:none;">Send request</button>
@@ -88,38 +92,36 @@ let token = localStorage.getItem("token");
 let me = null;
 let listings = [];
 let fields = [];
-let pricingByMachine = new Map();
 let selectedListing = null;
 
 function authHeaders(){ return token ? {"Authorization":"Bearer " + token} : {}; }
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function showMsg(type, text){
   const m = document.getElementById("msg");
   m.className = "result " + (type === "ok" ? "ok" : "error");
-  m.hidden = false;
-  m.textContent = text;
+  m.hidden = false; m.textContent = text;
 }
-function esc(s){ return String(s ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 (async function MM_boot(){
-  // 1) Pre-fill search bar (top) and local filter from ?q=
+  // Pre-fill search from ?q= and top bar
   const urlQ = new URLSearchParams(location.search).get("q") || "";
   const topBar = document.getElementById("globalQuery");
   if (topBar) topBar.value = urlQ;
   document.getElementById("q").value = urlQ;
 
-  // 2) Load auth (independent of base.html)
+  // Auth + client fields
   await MM_loadAuth();
+  await MM_loadFields();
 
-  // 3) Load listings (public) and optional pricing/fields (auth)
-  await Promise.all([MM_loadListings(), MM_loadPricing(), MM_loadFields()]);
+  // Listings (public, already includes pricing)
+  await MM_loadListings();
 
-  // 4) Render UI + wire filter buttons
+  // Render + bind filters
   MM_render();
   document.getElementById("applyFilters").addEventListener("click", MM_render);
   document.getElementById("clearFilters").addEventListener("click", () => {
     document.getElementById("q").value = "";
     document.getElementById("unit").value = "";
-    // also clear ?q= in URL
     const u = new URL(location.href); u.searchParams.delete("q"); history.replaceState(null, "", u.toString());
     MM_render();
   });
@@ -134,35 +136,8 @@ async function MM_loadAuth(){
     me = await r.json();
   }catch{
     localStorage.removeItem("token");
-    token = null;
+    token = null; me = null;
   }
-}
-
-async function MM_loadListings(){
-  const u = new URL(`${location.origin}${API}/listings/public`);
-  const q = document.getElementById("q").value.trim();
-  if (q) u.searchParams.set("q", q);
-  try{
-    const r = await fetch(u.toString());
-    listings = r.ok ? await r.json() : [];
-  }catch{ listings = []; }
-}
-
-async function MM_loadPricing(){
-  pricingByMachine = new Map();
-  if (!token) return; // optional, only when logged in
-  try{
-    const r = await fetch(`${API}/pricing/`, { headers: authHeaders() });
-    if (!r.ok) return;
-    const rules = await r.json();
-    rules.forEach(p => {
-      if (p.owner_type === "machine") {
-        const arr = pricingByMachine.get(p.owner_id) || [];
-        arr.push(p);
-        pricingByMachine.set(p.owner_id, arr);
-      }
-    });
-  }catch{}
 }
 
 async function MM_loadFields(){
@@ -174,25 +149,79 @@ async function MM_loadFields(){
   }catch{}
 }
 
-function MM_priceLine(listing){
-  // Use machine pricing if available
-  const rules = pricingByMachine.get(listing.ref_machine_id) || [];
-  if (!rules.length) return "Ask for a quote";
-  // Group by unit and show a couple
-  const unit = document.getElementById("unit").value;
-  const filtered = unit ? rules.filter(r => r.unit === unit) : rules;
-  if (!filtered.length) return "Ask for a quote";
-  return filtered.slice(0, 3).map(r => `${r.base_price} ${r.currency} / ${r.unit}`).join(" · ");
+async function MM_loadListings(){
+  try{
+    // Use public endpoint, include pricing
+    const url = new URL(`${location.origin}${API}/listings/public`);
+    const q = (document.getElementById("q").value || "").trim();
+    if (q) url.searchParams.set("q", q);
+    url.searchParams.set("include_pricing", "true");
+
+    const r = await fetch(url.toString());
+    listings = r.ok ? await r.json() : [];
+  }catch{ listings = []; }
 }
 
+/* ---------- Pricing rendering ---------- */
+/* pricing model fields:
+    owner_type, owner_id, unit, base_price, min_qty?,
+    transport_flat_fee?, transport_per_km?, currency, surcharges?
+*/
+function formatPriceRule(p){
+  const cur = p.currency || "EUR";
+  const base = (p.base_price != null) ? `${Number(p.base_price).toLocaleString()} ${cur}` : "";
+  const unit = p.unit ? ` / ${p.unit}` : "";
+  const min  = (p.min_qty != null) ? ` (min ${p.min_qty})` : "";
+  const parts = [];
+  if (base) parts.push(base + unit + min);
+  const tf = p.transport_flat_fee != null ? `flat ${p.transport_flat_fee} ${cur}` : null;
+  const tkm = p.transport_per_km != null ? `${p.transport_per_km} ${cur}/km` : null;
+  if (tf || tkm) parts.push(`transport: ${[tf, tkm].filter(Boolean).join(" + ")}`);
+  return parts.join(" • ");
+}
+
+function summarizePrices(pricing){
+  if (!Array.isArray(pricing) || pricing.length === 0) return "Ask for a quote";
+  // prefer listing-level first, then machine-level; show up to 3 lines
+  const sorted = pricing.slice().sort((a,b)=>{
+    const aKey = (a.owner_type === "listing" ? 0 : 1);
+    const bKey = (b.owner_type === "listing" ? 0 : 1);
+    if (aKey !== bKey) return aKey - bKey;
+    // then by unit
+    return String(a.unit||"").localeCompare(String(b.unit||""));
+  });
+  return sorted.slice(0,3).map(formatPriceRule).join(" · ");
+}
+
+/* ---------- UI ---------- */
 function MM_card(listing){
+  const pricing = listing.pricing || [];
+  const priceLine = summarizePrices(pricing);
+
+  // Build optional expandable details for all price rules
+  const detailsId = `pricing_${listing.id}`;
+  const detailRows = pricing.map(p => `<li>${esc(formatPriceRule(p))}</li>`).join("");
+  const hasMore = pricing.length > 3;
+
   return `
-  <div class="card" style="display:flex;flex-direction:column;gap:.5rem;">
+  <div class="card" style="display:flex;flex-direction:column;gap:.6rem;">
     <div>
       <div style="font-weight:600">${esc(listing.title)}</div>
       <div style="color:#555">${esc(listing.description ?? "")}</div>
     </div>
-    <div style="font-size:.9rem;color:#1e293b">${esc(MM_priceLine(listing))}</div>
+    <div style="font-size:.9rem;color:#1e293b">${esc(priceLine)}</div>
+
+    ${pricing.length ? `
+      <details id="${detailsId}" style="font-size:.9rem;">
+        <summary class="btn btn-outline" style="padding:.35rem .6rem; display:inline-flex;">
+          ${hasMore ? "See all pricing" : "Price details"}
+        </summary>
+        <ul style="margin:.5rem 0 0 1rem; padding:0; color:#334155;">
+          ${detailRows}
+        </ul>
+      </details>
+    ` : ``}
+
     <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:auto;">
       <button class="btn" onclick='MM_openRequest(${JSON.stringify(listing)})'>Request this</button>
     </div>
@@ -200,31 +229,34 @@ function MM_card(listing){
 }
 
 function MM_render(){
-  // Re-load listings when filters change (so public endpoint can use q)
+  // Re-load listings so server search (?q=) applies
   MM_loadListings().then(() => {
     let rows = listings.slice();
-    const q = document.getElementById("q").value.toLowerCase().trim();
-    if (q) rows = rows.filter(l =>
-      (l.title || "").toLowerCase().includes(q) ||
-      (l.description || "").toLowerCase().includes(q)
-    );
+
+    // Client-side refine by unit
     const unit = document.getElementById("unit").value;
     if (unit) {
-      // Keep listings that have at least one matching pricing rule
-      rows = rows.filter(l => {
-        const rules = pricingByMachine.get(l.ref_machine_id) || [];
-        return rules.some(r => r.unit === unit);
-      });
+      rows = rows.filter(l => Array.isArray(l.pricing) && l.pricing.some(p => p.unit === unit));
     }
+
+    // Local text refine (in addition to server-side)
+    const q = (document.getElementById("q").value || "").toLowerCase().trim();
+    if (q) {
+      rows = rows.filter(l =>
+        (l.title||"").toLowerCase().includes(q) ||
+        (l.description||"").toLowerCase().includes(q)
+      );
+    }
+
     const grid = document.getElementById("grid");
     grid.innerHTML = rows.length ? rows.map(MM_card).join("") : "<p>No listings match your filters.</p>";
   });
 }
 
+/* ---------- Request flow ---------- */
 function MM_openRequest(listing){
   selectedListing = listing;
 
-  // Fill heading
   document.getElementById("selListingTitle").textContent = listing.title || "";
 
   const gate = document.getElementById("requestGate");
@@ -232,51 +264,44 @@ function MM_openRequest(listing){
   const sendBtn = document.getElementById("sendReqBtn");
   const sel = document.getElementById("req_field");
 
-  // Default: hide form, show gate
+  // Default: gate visible
   gate.style.display = "block";
   form.style.display = "none";
   sendBtn.style.display = "none";
   sel.innerHTML = "";
 
-  // If not logged in / not client / no fields → gate stays visible
+  // not logged in / not a client
   if (!me || !me.is_client) {
     document.getElementById("requestDlg").showModal();
     return;
   }
+
+  // ensure fields
+  const openWithForm = () => {
+    if (!fields.length) {
+      gate.style.display = "block";
+      form.style.display = "none";
+      sendBtn.style.display = "none";
+    } else {
+      gate.style.display = "none";
+      form.style.display = "block";
+      sendBtn.style.display = "inline-flex";
+      sel.innerHTML = "";
+      fields.forEach(f => {
+        const opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = `${f.name} (${Number(f.area_ha).toFixed(2)} ha)`;
+        sel.appendChild(opt);
+      });
+    }
+    document.getElementById("requestDlg").showModal();
+  };
+
   if (!fields.length) {
-    // Try reloading fields (maybe user added them in another tab)
-    MM_loadFields().then(() => {
-      if (!fields.length) {
-        document.getElementById("requestDlg").showModal();
-      } else {
-        MM_prepareFormAndOpen();
-      }
-    });
-    return;
+    MM_loadFields().then(openWithForm);
+  } else {
+    openWithForm();
   }
-
-  MM_prepareFormAndOpen();
-}
-
-function MM_prepareFormAndOpen(){
-  const gate = document.getElementById("requestGate");
-  const form = document.getElementById("requestForm");
-  const sendBtn = document.getElementById("sendReqBtn");
-  const sel = document.getElementById("req_field");
-
-  gate.style.display = "none";
-  form.style.display = "block";
-  sendBtn.style.display = "inline-flex";
-
-  sel.innerHTML = "";
-  fields.forEach(f => {
-    const opt = document.createElement("option");
-    opt.value = f.id;
-    opt.textContent = `${f.name} (${Number(f.area_ha).toFixed(2)} ha)`;
-    sel.appendChild(opt);
-  });
-
-  document.getElementById("requestDlg").showModal();
 }
 
 function MM_closeRequest(){
