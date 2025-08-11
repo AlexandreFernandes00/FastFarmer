@@ -66,3 +66,36 @@ def delete_listing(listing_id: UUID, db: Session = Depends(get_db), current: Use
         raise HTTPException(status_code=404, detail="Listing not found")
     db.delete(lst)
     db.commit()
+
+@router.get("/public")
+def public_listings(
+    db: Session = Depends(get_db),
+    q: str | None = Query(None),
+    unit: str | None = Query(None),  # optional filter: hour|hectare|km|job (if you want to filter via pricing)
+    limit: int = 50,
+    offset: int = 0,
+):
+    # Treat NULL status as 'active' for safety
+    stmt = sa.select(Listing).where(
+        sa.or_(Listing.status == "active", Listing.status.is_(None))
+    ).order_by(Listing.created_at.desc()).limit(limit).offset(offset)
+
+    if q:
+        like = f"%{q.lower()}%"
+        stmt = stmt.where(sa.or_(
+            sa.func.lower(Listing.title).like(like),
+            sa.func.lower(Listing.description).like(like),
+        ))
+
+    rows = db.execute(stmt).scalars().all()
+
+    # Minimal shape the front-end expects
+    def shape(l):
+        return {
+            "id": str(l.id),
+            "title": l.title or "",
+            "description": l.description or "",
+            "status": l.status or "active",
+            "ref_machine_id": str(getattr(l, "ref_machine_id", "")) if getattr(l, "ref_machine_id", None) else None,
+        }
+    return [shape(r) for r in rows]

@@ -1,30 +1,18 @@
 {% extends "base.html" %}
+{% block title %}Marketplace · FastFarmer{% endblock %}
 {% block content %}
-<h2>Marketplace</h2>
 
-<!-- Gate -->
-<div id="gate" class="card" hidden>
-  <p>You need to be logged in as a <strong>client</strong> to request work.</p>
-  <p>
-    <a class="btn" href="/login">Login</a>
-    <a class="btn btn-outline" href="/fields">Manage my fields</a>
-  </p>
-</div>
+<h2>Marketplace</h2>
+<p style="color:#475569;margin-top:-.2rem">Browse equipment & services. Select a listing and request work for one of your fields.</p>
 
 <!-- Filters -->
-<section class="card" id="filters" hidden>
+<div class="card" style="margin-top:.75rem;">
   <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:.75rem;">
     <label>Search
-      <input id="q" placeholder="Search title, machine..." oninput="render()" />
+      <input id="q" placeholder="Search title or description…" />
     </label>
-    <label>Status
-      <select id="status" onchange="render()">
-        <option value="">Active only</option>
-        <option value="all">All</option>
-      </select>
-    </label>
-    <label>Unit (pricing)
-      <select id="unit" onchange="render()">
+    <label>Pricing unit
+      <select id="unit">
         <option value="">Any</option>
         <option value="hour">per hour</option>
         <option value="hectare">per hectare</option>
@@ -32,13 +20,19 @@
         <option value="job">per job</option>
       </select>
     </label>
+    <div style="align-self:end; display:flex; gap:.5rem; flex-wrap:wrap;">
+      <button class="btn" id="applyFilters">Apply</button>
+      <button class="btn btn-outline" id="clearFilters">Clear</button>
+    </div>
   </div>
-</section>
+</div>
 
-<!-- Listings -->
-<section class="card" id="content" hidden>
-  <div id="grid" class="grid" style="grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:1rem;"></div>
-</section>
+<!-- Listings grid -->
+<div class="card" style="margin-top:1rem;">
+  <div id="grid" class="grid" style="grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:1rem;">
+    <p>Loading listings…</p>
+  </div>
+</div>
 
 <div id="msg" class="result" hidden></div>
 
@@ -47,7 +41,15 @@
   <form method="dialog" onsubmit="return false;" style="margin:0;">
     <h3>Request this listing</h3>
     <p id="selListingTitle" style="margin-top:-.25rem;color:#555;"></p>
-    <div class="form">
+    <div id="requestGate" class="result" style="margin:.75rem 0 .25rem 0; display:none;">
+      You must be logged in as a <strong>client</strong> and have at least one field to request work.
+      <div style="margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+        <a class="btn btn-outline" href="/login">Login</a>
+        <a class="btn" href="/register">Register</a>
+        <a class="btn btn-outline" href="/fields">Add a field</a>
+      </div>
+    </div>
+    <div id="requestForm" class="form" style="display:none;">
       <label>Choose your field
         <select id="req_field" required></select>
       </label>
@@ -69,149 +71,246 @@
         <textarea id="req_notes" rows="2" placeholder="Anything the provider should know…"></textarea>
       </label>
     </div>
-    <div style="display:flex;gap:.5rem;justify-content:flex-end;">
-      <button class="btn btn-outline" onclick="closeRequest()">Cancel</button>
-      <button class="btn" onclick="submitRequest()">Send request</button>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.75rem;">
+      <button class="btn btn-outline" onclick="MM_closeRequest()">Cancel</button>
+      <button class="btn" id="sendReqBtn" onclick="MM_submitRequest()" style="display:none;">Send request</button>
     </div>
   </form>
 </dialog>
 
-<script>
-const API="/api/v1";
-let token = localStorage.getItem("token");
-let me=null, fields=[], listings=[], pricingByMachine=new Map();
-let selectedListing=null;
+{% endblock %}
 
-function authHeaders(){ return token ? {"Authorization":"Bearer "+token} : {}; }
-function show(el, yes=true){ el.hidden=!yes; }
-function msgOk(t){ const m=document.getElementById("msg"); m.className="result ok"; m.hidden=false; m.textContent=t; }
-function msgErr(t){ const m=document.getElementById("msg"); m.className="result error"; m.hidden=false; m.textContent=t; }
+{% block page_scripts %}
+<script>
+/* ===== Marketplace (self-contained) ===== */
+const API = "/api/v1";
+let token = localStorage.getItem("token");
+let me = null;
+let listings = [];
+let fields = [];
+let pricingByMachine = new Map();
+let selectedListing = null;
+
+function authHeaders(){ return token ? {"Authorization":"Bearer " + token} : {}; }
+function showMsg(type, text){
+  const m = document.getElementById("msg");
+  m.className = "result " + (type === "ok" ? "ok" : "error");
+  m.hidden = false;
+  m.textContent = text;
+}
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-(async function init(){
-  // auth & role
-  me = await fetch(`${API}/auth/me`, { headers: authHeaders() }).then(r=>r.ok?r.json():null);
-  if (!me || !me.is_client) { show(document.getElementById("gate"), true); return; }
-  show(document.getElementById("filters"), true);
-  show(document.getElementById("content"), true);
+(async function MM_boot(){
+  // 1) Pre-fill search bar (top) and local filter from ?q=
+  const urlQ = new URLSearchParams(location.search).get("q") || "";
+  const topBar = document.getElementById("globalQuery");
+  if (topBar) topBar.value = urlQ;
+  document.getElementById("q").value = urlQ;
 
-  await Promise.all([loadFields(), loadListings()]);
-  render();
+  // 2) Load auth (independent of base.html)
+  await MM_loadAuth();
+
+  // 3) Load listings (public) and optional pricing/fields (auth)
+  await Promise.all([MM_loadListings(), MM_loadPricing(), MM_loadFields()]);
+
+  // 4) Render UI + wire filter buttons
+  MM_render();
+  document.getElementById("applyFilters").addEventListener("click", MM_render);
+  document.getElementById("clearFilters").addEventListener("click", () => {
+    document.getElementById("q").value = "";
+    document.getElementById("unit").value = "";
+    // also clear ?q= in URL
+    const u = new URL(location.href); u.searchParams.delete("q"); history.replaceState(null, "", u.toString());
+    MM_render();
+  });
 })();
 
-async function loadFields(){
-  const r = await fetch(`${API}/fields/`, { headers: authHeaders() });
-  if (!r.ok) { fields=[]; return; }
-  fields = await r.json();
+async function MM_loadAuth(){
+  me = null;
+  if (!token) return;
+  try{
+    const r = await fetch(`${API}/auth/me`, { headers: authHeaders() });
+    if (!r.ok) throw 0;
+    me = await r.json();
+  }catch{
+    localStorage.removeItem("token");
+    token = null;
+  }
 }
 
-async function loadListings(){
-  // Load listings and pricing rules (so cards can show indicative price)
-  const [lr, pr] = await Promise.all([
-    fetch(`${API}/listings/`, { headers: authHeaders() }),
-    fetch(`${API}/pricing/`,  { headers: authHeaders() })
-  ]);
-  listings = lr.ok ? await lr.json() : [];
-  const pricing = pr.ok ? await pr.json() : [];
+async function MM_loadListings(){
+  const u = new URL(`${location.origin}${API}/listings/public`);
+  const q = document.getElementById("q").value.trim();
+  if (q) u.searchParams.set("q", q);
+  try{
+    const r = await fetch(u.toString());
+    listings = r.ok ? await r.json() : [];
+  }catch{ listings = []; }
+}
+
+async function MM_loadPricing(){
   pricingByMachine = new Map();
-  pricing.forEach(p=>{
-    if(p.owner_type === "machine"){
-      const arr = pricingByMachine.get(p.owner_id) || [];
-      arr.push(p); pricingByMachine.set(p.owner_id, arr);
-    }
-  });
+  if (!token) return; // optional, only when logged in
+  try{
+    const r = await fetch(`${API}/pricing/`, { headers: authHeaders() });
+    if (!r.ok) return;
+    const rules = await r.json();
+    rules.forEach(p => {
+      if (p.owner_type === "machine") {
+        const arr = pricingByMachine.get(p.owner_id) || [];
+        arr.push(p);
+        pricingByMachine.set(p.owner_id, arr);
+      }
+    });
+  }catch{}
 }
 
-function card(listing){
-  const rules = pricingByMachine.get(listing.ref_machine_id) || [];
-  const unit = document.getElementById("unit").value;
-  const visibleRules = unit ? rules.filter(r => r.unit === unit) : rules;
-  const priceText = visibleRules.length
-    ? visibleRules.map(r => `${r.base_price} ${r.currency} / ${r.unit}`).join(" · ")
-    : "Ask for a quote";
+async function MM_loadFields(){
+  fields = [];
+  if (!token || !me?.is_client) return;
+  try{
+    const r = await fetch(`${API}/fields/`, { headers: authHeaders() });
+    fields = r.ok ? await r.json() : [];
+  }catch{}
+}
 
+function MM_priceLine(listing){
+  // Use machine pricing if available
+  const rules = pricingByMachine.get(listing.ref_machine_id) || [];
+  if (!rules.length) return "Ask for a quote";
+  // Group by unit and show a couple
+  const unit = document.getElementById("unit").value;
+  const filtered = unit ? rules.filter(r => r.unit === unit) : rules;
+  if (!filtered.length) return "Ask for a quote";
+  return filtered.slice(0, 3).map(r => `${r.base_price} ${r.currency} / ${r.unit}`).join(" · ");
+}
+
+function MM_card(listing){
   return `
   <div class="card" style="display:flex;flex-direction:column;gap:.5rem;">
     <div>
       <div style="font-weight:600">${esc(listing.title)}</div>
       <div style="color:#555">${esc(listing.description ?? "")}</div>
     </div>
-    <div style="font-size:.9rem;color:#222">${esc(priceText)}</div>
+    <div style="font-size:.9rem;color:#1e293b">${esc(MM_priceLine(listing))}</div>
     <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:auto;">
-      <button class="btn" onclick='openRequest(${JSON.stringify(listing)})'>Request this</button>
+      <button class="btn" onclick='MM_openRequest(${JSON.stringify(listing)})'>Request this</button>
     </div>
   </div>`;
 }
 
-function render(){
-  const q = document.getElementById("q").value.toLowerCase().trim();
-  const status = document.getElementById("status").value; // "" or "all"
-  let rows = listings.slice();
-  if (status !== "all") rows = rows.filter(l => (l.status || "active") === "active");
-  if (q) rows = rows.filter(l => (l.title||"").toLowerCase().includes(q) || (l.description||"").toLowerCase().includes(q));
-  // if unit filter selected, hide cards with no matching pricing rule
-  const unit = document.getElementById("unit").value;
-  if (unit) rows = rows.filter(l => {
-    const rules = pricingByMachine.get(l.ref_machine_id) || [];
-    return rules.some(r => r.unit === unit);
+function MM_render(){
+  // Re-load listings when filters change (so public endpoint can use q)
+  MM_loadListings().then(() => {
+    let rows = listings.slice();
+    const q = document.getElementById("q").value.toLowerCase().trim();
+    if (q) rows = rows.filter(l =>
+      (l.title || "").toLowerCase().includes(q) ||
+      (l.description || "").toLowerCase().includes(q)
+    );
+    const unit = document.getElementById("unit").value;
+    if (unit) {
+      // Keep listings that have at least one matching pricing rule
+      rows = rows.filter(l => {
+        const rules = pricingByMachine.get(l.ref_machine_id) || [];
+        return rules.some(r => r.unit === unit);
+      });
+    }
+    const grid = document.getElementById("grid");
+    grid.innerHTML = rows.length ? rows.map(MM_card).join("") : "<p>No listings match your filters.</p>";
   });
-  const grid = document.getElementById("grid");
-  grid.innerHTML = rows.length ? rows.map(card).join("") : "<p>No listings match your filters.</p>";
 }
 
-function openRequest(listing){
+function MM_openRequest(listing){
   selectedListing = listing;
-  document.getElementById("selListingTitle").textContent = listing.title;
+
+  // Fill heading
+  document.getElementById("selListingTitle").textContent = listing.title || "";
+
+  const gate = document.getElementById("requestGate");
+  const form = document.getElementById("requestForm");
+  const sendBtn = document.getElementById("sendReqBtn");
   const sel = document.getElementById("req_field");
+
+  // Default: hide form, show gate
+  gate.style.display = "block";
+  form.style.display = "none";
+  sendBtn.style.display = "none";
   sel.innerHTML = "";
-  if (!fields.length) {
-    const opt = document.createElement("option");
-    opt.value=""; opt.textContent="(No fields yet — go add one)";
-    sel.appendChild(opt);
-  } else {
-    fields.forEach(f=>{
-      const opt = document.createElement("option");
-      opt.value = f.id;
-      opt.textContent = `${f.name} (${Number(f.area_ha).toFixed(2)} ha)`;
-      sel.appendChild(opt);
-    });
+
+  // If not logged in / not client / no fields → gate stays visible
+  if (!me || !me.is_client) {
+    document.getElementById("requestDlg").showModal();
+    return;
   }
+  if (!fields.length) {
+    // Try reloading fields (maybe user added them in another tab)
+    MM_loadFields().then(() => {
+      if (!fields.length) {
+        document.getElementById("requestDlg").showModal();
+      } else {
+        MM_prepareFormAndOpen();
+      }
+    });
+    return;
+  }
+
+  MM_prepareFormAndOpen();
+}
+
+function MM_prepareFormAndOpen(){
+  const gate = document.getElementById("requestGate");
+  const form = document.getElementById("requestForm");
+  const sendBtn = document.getElementById("sendReqBtn");
+  const sel = document.getElementById("req_field");
+
+  gate.style.display = "none";
+  form.style.display = "block";
+  sendBtn.style.display = "inline-flex";
+
+  sel.innerHTML = "";
+  fields.forEach(f => {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = `${f.name} (${Number(f.area_ha).toFixed(2)} ha)`;
+    sel.appendChild(opt);
+  });
+
   document.getElementById("requestDlg").showModal();
 }
 
-function closeRequest(){
+function MM_closeRequest(){
   document.getElementById("requestDlg").close();
   selectedListing = null;
 }
 
-async function submitRequest(){
+async function MM_submitRequest(){
   if (!selectedListing) return;
+
   const field_id = document.getElementById("req_field").value;
-  if (!field_id) { msgErr("Please choose a field."); return; }
+  if (!field_id) { showMsg("error", "Please choose a field."); return; }
   const desired_date = document.getElementById("req_date").value || null;
   const time_window  = document.getElementById("req_window").value || null;
   const notes        = (document.getElementById("req_notes").value || "").trim() || null;
 
-  const payload = {
-    listing_id: selectedListing.id,
-    field_id,
-    desired_date,
-    time_window,
-    notes
-  };
+  const payload = { listing_id: selectedListing.id, field_id, desired_date, time_window, notes };
 
-  const r = await fetch(`${API}/requests/`, {
-    method: "POST",
-    headers: { "Content-Type":"application/json", ...authHeaders() },
-    body: JSON.stringify(payload)
-  });
-  if (!r.ok) {
-    const e = await r.json().catch(()=>({detail:"Error"}));
-    msgErr(e.detail || "Could not create request");
-    return;
+  try{
+    const r = await fetch(`${API}/requests/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(()=>({detail:"Error"}));
+      showMsg("error", e.detail || "Could not create request");
+      return;
+    }
+    showMsg("ok", "Request sent. Providers can now quote.");
+    MM_closeRequest();
+  }catch{
+    showMsg("error", "Network error creating request.");
   }
-  msgOk("Request sent. Providers can now quote.");
-  closeRequest();
 }
 </script>
 {% endblock %}

@@ -15,7 +15,6 @@ from .web import router as web_router
 
 
 
-
 app = FastAPI(title=settings.PROJECT_NAME)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -34,6 +33,7 @@ app.include_router(categories_routes.router, prefix=f"{settings.API_V1_PREFIX}/c
 app.include_router(fields_routes.router,   prefix=f"{settings.API_V1_PREFIX}/fields",   tags=["fields"])
 app.include_router(requests_routes.router, prefix=f"{settings.API_V1_PREFIX}/requests", tags=["requests"])
 app.include_router(quotes_routes.router,   prefix=f"{settings.API_V1_PREFIX}/quotes",   tags=["quotes"])
+
 
 @app.get("/healthz")
 def healthz():
