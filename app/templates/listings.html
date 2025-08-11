@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>My Listings & Pricing</h2>
+
+<!-- Gate -->
+<div id="gate" class="card" hidden>
+  <p>You must be logged in as a <strong>provider</strong> to manage listings.</p>
+  <p>
+    <a class="btn" href="/login">Login</a>
+    <a class="btn btn-outline" href="/dashboard">Dashboard</a>
+  </p>
+</div>
+
+<!-- Content -->
+<section id="content" hidden>
+
+  <!-- CREATE LISTING -->
+  <div class="card">
+    <h3>Create a listing (machine)</h3>
+    <form id="createListingForm" class="form" onsubmit="return createListing(event)">
+      <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap:.75rem;">
+        <label>Select machine
+          <select id="machineSelect" required></select>
+        </label>
+        <label>Title
+          <input id="title" required placeholder="e.g., JD S770 Combine with operator" />
+        </label>
+        <label>Max distance (km)
+          <input id="max_distance_km" type="number" min="0" step="0.1" />
+        </label>
+      </div>
+      <label>Description
+        <textarea id="description" rows="2" placeholder="Short description, availability notes, included attachments…"></textarea>
+      </label>
+      <div style="display:flex;gap:.5rem;align-items:center;">
+        <button class="btn" type="submit">Publish listing</button>
+        <button class="btn btn-outline" type="button" onclick="loadListings()">Refresh</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- LISTINGS TABLE -->
+  <div class="card" style="margin-top:1rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h3 style="margin:0;">Your listings</h3>
+      <div style="display:flex;gap:.5rem;">
+        <input id="q" placeholder="Search title or machine…" oninput="filterListings()" />
+        <select id="statusFilter" onchange="filterListings()">
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="paused">Paused</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+    </div>
+    <div id="listings"></div>
+  </div>
+
+  <!-- PRICING MANAGER -->
+  <div class="card" style="margin-top:1rem;">
+    <h3>Pricing rules for selected listing</h3>
+    <p id="pricingHint"><em>Select a listing above to manage pricing.</em></p>
+    <div id="pricingBox" hidden>
+      <form id="pricingForm" class="form" onsubmit="return addPricing(event)">
+        <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap:.75rem;">
+          <label>Unit
+            <select id="unit" required>
+              <option value="hour">per hour</option>
+              <option value="hectare">per hectare</option>
+              <option value="km">per km</option>
+              <option value="job">per job</option>
+            </select>
+          </label>
+          <label>Base price
+            <input id="base_price" type="number" step="0.01" min="0" required />
+          </label>
+          <label>Min qty
+            <input id="min_qty" type="number" step="0.01" min="0" />
+          </label>
+          <label>Transport flat fee
+            <input id="transport_flat_fee" type="number" step="0.01" min="0" />
+          </label>
+          <label>Transport per km
+            <input id="transport_per_km" type="number" step="0.001" min="0" />
+          </label>
+          <label>Currency
+            <input id="currency" value="EUR" />
+          </label>
+        </div>
+        <button class="btn" type="submit">Add pricing rule</button>
+      </form>
+
+      <div id="pricingList" style="margin-top:.75rem;"></div>
+    </div>
+  </div>
+</section>
+
+<div id="msg" class="result" hidden></div>
+
+<script>
+const API = "/api/v1";
+let token = localStorage.getItem("token");
+let machines = [];
+let listings = [];
+let selectedListing = null; // { id, ref_machine_id, ... }
+let myMachineMap = new Map(); // machineId -> machine
+
+function authHeaders(){ return token ? {"Authorization": "Bearer " + token} : {}; }
+function show(el, yes=true){ el.hidden = !yes; }
+function msgOk(t){ const m=document.getElementById("msg"); m.className="result ok"; m.hidden=false; m.textContent=t; }
+function msgErr(t){ const m=document.getElementById("msg"); m.className="result error"; m.hidden=false; m.textContent=t; }
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+(async function init(){
+  // gate by auth + role
+  if(!token){ show(document.getElementById("gate"), true); return; }
+  try {
+    const meRes = await fetch(`${API}/auth/me`, { headers: authHeaders() });
+    if(!meRes.ok) throw 0;
+    const me = await meRes.json();
+    if(!me.is_provider) throw 0;
+    show(document.getElementById("content"), true);
+  } catch { return show(document.getElementById("gate"), true); }
+
+  await loadMachines();
+  await loadListings();
+})();
+
+async function loadMachines(){
+  const sel = document.getElementById("machineSelect");
+  sel.innerHTML = "";
+  try{
+    const r = await fetch(`${API}/machines/`, { headers: authHeaders() });
+    if(!r.ok){ sel.innerHTML = `<option value="">(failed to load)</option>`; return; }
+    machines = await r.json();
+    myMachineMap = new Map(machines.map(m => [m.id, m]));
+    if(!machines.length){ sel.innerHTML = `<option value="">(no machines yet)</option>`; return; }
+    machines.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = `${m.make} ${m.model} ${m.year ?? ""}`.trim();
+      sel.appendChild(opt);
+    });
+  }catch(e){
+    sel.innerHTML = `<option value="">(error)</option>`;
+  }
+}
+
+async function loadListings(){
+  const box = document.getElementById("listings");
+  box.textContent = "Loading…";
+  try{
+    const r = await fetch(`${API}/listings/`, { headers: authHeaders() });
+    if(!r.ok){ box.textContent = "Failed to load listings."; return; }
+    listings = await r.json();
+    renderListings(listings);
+  }catch(e){
+    box.textContent = "Error loading listings.";
+  }
+}
+
+function renderListings(data){
+  const box = document.getElementById("listings");
+  if(!data.length){ box.innerHTML = "<p>No listings yet.</p>"; return; }
+
+  const table = document.createElement("table");
+  table.style.width = "100%"; table.style.borderCollapse = "collapse";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th style="text-align:left">Title</th>
+        <th style="text-align:left">Machine</th>
+        <th>Status</th>
+        <th>Max dist (km)</th>
+        <th style="text-align:right"></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+
+  data.forEach(l => {
+    const m = myMachineMap.get(l.ref_machine_id);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(l.title)}</td>
+      <td>${m ? esc(`${m.make} ${m.model} ${m.year ?? ""}`.trim()) : "—"}</td>
+      <td style="text-align:center">${statusChip(l.status)}</td>
+      <td style="text-align:center">${l.max_distance_km ?? "—"}</td>
+      <td style="text-align:right; white-space:nowrap;">
+        <button class="btn btn-outline" onclick='selectListing(${JSON.stringify(l)})'>Select</button>
+        <button class="btn btn-outline" onclick='editListingStatus("${l.id}", "${l.status || "active"}")'>Status…</button>
+        <button class="btn btn-outline" onclick='deleteListing("${l.id}")'>Delete</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  box.innerHTML = "";
+  box.appendChild(table);
+
+  // keep selection if still present
+  if(selectedListing){
+    const stillThere = data.find(x => x.id === selectedListing.id);
+    if(stillThere) { selectListing(stillThere, true); }
+    else { clearPricingSelection(); }
+  }
+}
+
+function statusChip(s){
+  const color = s === "active" ? "#12a150" : (s === "paused" ? "#b88900" : "#888");
+  return `<span style="display:inline-block;padding:.1rem .5rem;border-radius:999px;background:${color}20;color:${color};">${esc(s)}</span>`;
+}
+
+function filterListings(){
+  const q = document.getElementById("q").value.toLowerCase().trim();
+  const status = document.getElementById("statusFilter").value;
+  let rows = listings.slice();
+  if(q) rows = rows.filter(l => (l.title || "").toLowerCase().includes(q) || machineName(l).toLowerCase().includes(q));
+  if(status) rows = rows.filter(l => l.status === status);
+  renderListings(rows);
+}
+
+function machineName(l){
+  const m = myMachineMap.get(l.ref_machine_id);
+  return m ? `${m.make} ${m.model} ${m.year ?? ""}`.trim() : "";
+}
+
+async function createListing(e){
+  e.preventDefault();
+  const form = e.target;
+  const ref_machine_id = document.getElementById("machineSelect").value;
+  if(!ref_machine_id){ msgErr("Pick a machine first."); return false; }
+  const payload = {
+    type: "machine",
+    ref_machine_id,
+    title: document.getElementById("title").value.trim(),
+    description: document.getElementById("description").value.trim() || null,
+    max_distance_km: document.getElementById("max_distance_km").value ? Number(document.getElementById("max_distance_km").value) : null
+  };
+  const r = await fetch(`${API}/listings/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(payload)
+  });
+  if(!r.ok){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Create failed"); return false; }
+  msgOk("Listing created.");
+  form.reset();
+  await loadListings();
+  return false;
+}
+
+async function editListingStatus(id, current){
+  const s = prompt("Set status (active|paused|archived):", current || "active");
+  if(!s) return;
+  const r = await fetch(`${API}/listings/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ status: s })
+  });
+  if(!r.ok){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Update failed"); return; }
+  msgOk("Listing updated.");
+  await loadListings();
+}
+
+async function deleteListing(id){
+  if(!confirm("Delete this listing?")) return;
+  const r = await fetch(`${API}/listings/${id}`, { method: "DELETE", headers: authHeaders() });
+  if(r.status !== 204){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Delete failed"); return; }
+  msgOk("Listing deleted.");
+  await loadListings();
+}
+
+function clearPricingSelection(){
+  selectedListing = null;
+  show(document.getElementById("pricingBox"), false);
+  show(document.getElementById("pricingHint"), true);
+  document.getElementById("pricingList").innerHTML = "";
+}
+
+async function selectListing(l, silent){
+  selectedListing = l;
+  show(document.getElementById("pricingHint"), false);
+  show(document.getElementById("pricingBox"), true);
+  if(!silent) msgOk("Selected listing: " + l.title);
+  await loadPricing();
+}
+
+async function loadPricing(){
+  // GET /pricing returns all rules for my machines; we filter client-side by owner_id (machine id)
+  const box = document.getElementById("pricingList");
+  box.innerHTML = "<em>Loading pricing…</em>";
+  const r = await fetch(`${API}/pricing/`, { headers: authHeaders() });
+  if(!r.ok){ box.textContent = "Failed to load pricing."; return; }
+  const rules = await r.json();
+  const mine = rules.filter(pr => pr.owner_type === "machine" && pr.owner_id === selectedListing.ref_machine_id);
+
+  if(!mine.length){ box.innerHTML = "<p>No pricing rules yet.</p>"; return; }
+
+  const table = document.createElement("table");
+  table.style.width="100%"; table.style.borderCollapse="collapse";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Unit</th><th>Base</th><th>Min qty</th>
+        <th>Transport flat</th><th>Per km</th><th>Currency</th>
+        <th style="text-align:right"></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+  mine.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td style="text-transform:capitalize">${esc(r.unit)}</td>
+      <td>${r.base_price}</td>
+      <td>${r.min_qty ?? "—"}</td>
+      <td>${r.transport_flat_fee ?? "—"}</td>
+      <td>${r.transport_per_km ?? "—"}</td>
+      <td>${esc(r.currency)}</td>
+      <td style="text-align:right">
+        <button class="btn btn-outline" onclick='editPricing(${JSON.stringify(r)})'>Edit</button>
+        <button class="btn btn-outline" onclick='deletePricing("${r.id}")'>Delete</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+  box.innerHTML = "";
+  box.appendChild(table);
+}
+
+async function addPricing(e){
+  e.preventDefault();
+  if(!selectedListing) { msgErr("Select a listing first."); return false; }
+  const payload = {
+    owner_type: "machine",
+    owner_id: selectedListing.ref_machine_id,
+    unit: document.getElementById("unit").value,
+    base_price: Number(document.getElementById("base_price").value),
+    min_qty: document.getElementById("min_qty").value ? Number(document.getElementById("min_qty").value) : null,
+    transport_flat_fee: document.getElementById("transport_flat_fee").value ? Number(document.getElementById("transport_flat_fee").value) : null,
+    transport_per_km: document.getElementById("transport_per_km").value ? Number(document.getElementById("transport_per_km").value) : null,
+    currency: document.getElementById("currency").value || "EUR"
+  };
+  const r = await fetch(`${API}/pricing/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(payload)
+  });
+  if(!r.ok){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Create pricing failed"); return false; }
+  msgOk("Pricing rule added.");
+  e.target.reset();
+  await loadPricing();
+  return false;
+}
+
+async function editPricing(rule){
+  const base = prompt("Base price", rule.base_price);
+  if(base == null) return;
+  const r = await fetch(`${API}/pricing/${rule.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ base_price: Number(base) })
+  });
+  if(!r.ok){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Update failed"); return; }
+  msgOk("Pricing updated.");
+  await loadPricing();
+}
+
+async function deletePricing(id){
+  if(!confirm("Delete this pricing rule?")) return;
+  const r = await fetch(`${API}/pricing/${id}`, { method: "DELETE", headers: authHeaders() });
+  if(r.status !== 204){ const err = await r.json().catch(()=>({detail:"Error"})); msgErr(err.detail || "Delete failed"); return; }
+  msgOk("Pricing deleted.");
+  await loadPricing();
+}
+</script>
+{% endblock %}

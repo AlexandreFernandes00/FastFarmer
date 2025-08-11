@@ -108,7 +108,7 @@ async function submitForm(e) {
         localStorage.setItem("token", access_token);
         showOk("You're signed in. Redirecting…");
         // Redirect to a next-step page when you have one (e.g., /dashboard or /me)
-        // location.href = "/"; // uncomment when ready
+        location.href = "/dashboard"; // uncomment when ready
       } else {
         // If login fails, keep the successful registration message visible
         const err = await safeJson(loginRes);

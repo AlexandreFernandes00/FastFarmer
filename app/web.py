@@ -24,3 +24,7 @@ def dashboard(request: Request):
 @router.get("/machines")
 def machines_page(request: Request):
     return templates.TemplateResponse("machines.html", {"request": request})
+
+@router.get("/listings")
+def listings_page(request: Request):
+    return templates.TemplateResponse("listings.html", {"request": request})

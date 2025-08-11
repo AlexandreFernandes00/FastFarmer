@@ -2,258 +2,293 @@
 {% block content %}
 <h2>Dashboard</h2>
 
+<!-- Gate for unauthenticated -->
 <div id="gate" class="card" hidden>
   <p>You’re not signed in.</p>
-  <p><a class="btn" href="/login">Go to Login</a></p>
+  <p>
+    <a class="btn" href="/login">Go to login</a>
+  </p>
 </div>
 
-<div id="content" hidden>
+<!-- Main content -->
+<section id="content" hidden>
+  <!-- Me -->
   <section class="card" id="me">
-    <h3>Welcome, <span id="name">...</span></h3>
+    <h3 style="display:flex;align-items:center;gap:.5rem;">
+      Welcome, <span id="name">...</span>
+      <span id="badges" style="display:inline-flex;gap:.25rem;"></span>
+    </h3>
     <p><strong>Email:</strong> <span id="email">...</span></p>
-    <p>
-      <strong>Roles:</strong>
-      <span id="roles">...</span>
-    </p>
-    <div style="margin-top:.5rem;">
+    <p><strong>Phone:</strong> <span id="phone">—</span></p>
+
+    <details style="margin-top:.5rem;">
+      <summary>Edit my info</summary>
+      <form id="meForm" class="form" onsubmit="return updateMe(event)">
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap:.75rem;">
+          <label>Full name
+            <input id="me_full_name" />
+          </label>
+          <label>Phone
+            <input id="me_phone" />
+          </label>
+        </div>
+        <button class="btn" type="submit">Save</button>
+      </form>
+    </details>
+
+    <div style="margin-top:.75rem;">
       <button class="btn btn-outline" onclick="logout()">Logout</button>
     </div>
   </section>
 
-  <section class="grid" style="margin-top:1rem;">
-    <div class="card" id="clientBox" hidden>
+  <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); gap:1rem; margin-top:1rem;">
+    <!-- Client profile -->
+    <section class="card" id="clientBox" hidden>
       <h3>Client profile</h3>
-      <p id="clientStatus">Checking…</p>
-      <div id="clientActions"></div>
-    </div>
+      <div id="clientStatus"><em>Checking…</em></div>
+      <div id="clientActions" style="margin-top:.5rem;"></div>
+    </section>
 
-    <div class="card" id="providerBox" hidden>
+    <!-- Provider profile -->
+    <section class="card" id="providerBox" hidden>
       <h3>Provider profile</h3>
-      <p id="providerStatus">Checking…</p>
-      <div id="providerActions"></div>
+      <div id="providerStatus"><em>Checking…</em></div>
+      <div id="providerActions" style="margin-top:.5rem;"></div>
+    </section>
+  </div>
+
+  <!-- Provider: machines preview -->
+  <section class="card" id="machinesBox" hidden style="margin-top:1rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h3 style="margin:0;">Your machines (preview)</h3>
+      <div style="display:flex;gap:.5rem;">
+        <a class="btn" href="/machines">Manage machines</a>
+        <a class="btn btn-outline" href="/listings">Manage listings & pricing</a>
+      </div>
     </div>
+    <div id="machinesPreview" style="margin-top:.5rem;"><em>Loading…</em></div>
   </section>
 
+  <!-- Next steps -->
   <section class="card" style="margin-top:1rem;">
     <h3>Next actions</h3>
     <ul>
-      <li><a href="/register">Create another account</a> (for testing)</li>
-      <li><em>Coming soon:</em> Manage machines, listings, fields, bookings</li>
+      <li><a href="/machines">Add your first machine</a> (providers)</li>
+      <li><a href="/listings">Publish a listing & set pricing</a></li>
+      <li>Coming soon: fields, bookings, quotes, payments</li>
     </ul>
   </section>
-</div>
+</section>
 
 <div id="msg" class="result" hidden></div>
 
 <script>
 const API = "/api/v1";
-const token = localStorage.getItem("token");
+let token = localStorage.getItem("token");
 
-function authHeaders() {
-  return token ? { "Authorization": "Bearer " + token } : {};
-}
-function show(el, yes = true) { el.hidden = !yes; }
-function text(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
-function msgOk(t) { const m = document.getElementById("msg"); m.className="result ok"; m.hidden=false; m.textContent=t; }
-function msgErr(t) { const m = document.getElementById("msg"); m.className="result error"; m.hidden=false; m.textContent=t; }
+function authHeaders(){ return token ? {"Authorization":"Bearer "+token} : {}; }
+function show(el, yes=true){ el.hidden = !yes; }
+function text(id, v){ const el = document.getElementById(id); if (el) el.textContent = v; }
+function html(id, v){ const el = document.getElementById(id); if (el) el.innerHTML = v; }
+function msgOk(t){ const m = document.getElementById("msg"); m.className="result ok"; m.hidden=false; m.textContent=t; }
+function msgErr(t){ const m = document.getElementById("msg"); m.className="result error"; m.hidden=false; m.textContent=t; }
 
-function logout() { localStorage.removeItem("token"); location.href="/login"; }
+function logout(){ localStorage.removeItem("token"); location.href="/login"; }
 
-(async function init() {
-  if (!token) {
+(async function init(){
+  if(!token){ show(document.getElementById("gate"), true); return; }
+
+  // Get current user
+  let me;
+  try{
+    const r = await fetch(`${API}/auth/me`, { headers: authHeaders() });
+    if(!r.ok) throw 0;
+    me = await r.json();
+  }catch{
     show(document.getElementById("gate"), true);
     return;
   }
 
-  try {
-    // /me
-    const r = await fetch(`${API}/auth/me`, { headers: authHeaders() });
-    if (!r.ok) throw new Error("Unauthorized");
-    const me = await r.json();
+  // Render "me"
+  show(document.getElementById("content"), true);
+  text("name", me.full_name || "User");
+  text("email", me.email);
+  text("phone", me.phone || "—");
+  document.getElementById("me_full_name").value = me.full_name || "";
+  document.getElementById("me_phone").value = me.phone || "";
 
-    show(document.getElementById("content"), true);
-    text("name", me.full_name || "User");
-    text("email", me.email);
-    const roles = [];
-    if (me.is_client) roles.push("Client");
-    if (me.is_provider) roles.push("Provider");
-    if (me.is_admin) roles.push("Admin");
-    text("roles", roles.join(", ") || "—");
+  // Role badges
+  const badges = document.getElementById("badges");
+  badges.innerHTML = "";
+  if (me.is_client) badges.appendChild(chip("Client", "#3b82f6"));
+  if (me.is_provider) badges.appendChild(chip("Provider", "#10b981"));
+  if (me.is_admin) badges.appendChild(chip("Admin", "#f43f5e"));
 
-    // Client profile box only if user is client
-    if (me.is_client) {
-      const box = document.getElementById("clientBox");
-      show(box, true);
-      await loadClientProfile();
-    }
-
-    // Provider profile box only if user is provider
-    if (me.is_provider) {
-      const box = document.getElementById("providerBox");
-      show(box, true);
-      await loadProviderProfile();
-    }
-
-  } catch (e) {
-    show(document.getElementById("gate"), true);
+  // Profiles
+  if (me.is_client) {
+    show(document.getElementById("clientBox"), true);
+    await loadClientProfile();
+  }
+  if (me.is_provider) {
+    show(document.getElementById("providerBox"), true);
+    await loadProviderProfile();
+    // Machines preview (providers only)
+    await loadMachinesPreview();
   }
 })();
 
-async function loadClientProfile() {
+function chip(textVal, color){
+  const s = document.createElement("span");
+  s.textContent = textVal;
+  s.style.display = "inline-block";
+  s.style.padding = ".1rem .5rem";
+  s.style.borderRadius = "999px";
+  s.style.background = color + "20";
+  s.style.color = color;
+  s.style.fontSize = ".85rem";
+  return s;
+}
+
+async function updateMe(e){
+  e.preventDefault();
+  const full_name = document.getElementById("me_full_name").value.trim();
+  const phone = document.getElementById("me_phone").value.trim();
+  try{
+    const r = await fetch(`${API}/me`, {
+      method: "PUT",
+      headers: { "Content-Type":"application/json", ...authHeaders() },
+      body: JSON.stringify({ full_name: full_name || null, phone: phone || null })
+    });
+    if(!r.ok){ const err = await safeJson(r); msgErr(err?.detail || "Update failed"); return false; }
+    const me = await r.json();
+    text("name", me.full_name || "User");
+    text("phone", me.phone || "—");
+    msgOk("Profile updated");
+  }catch{ msgErr("Unexpected error"); }
+  return false;
+}
+
+/* -------- Client profile -------- */
+async function loadClientProfile(){
   const status = document.getElementById("clientStatus");
   const actions = document.getElementById("clientActions");
+  status.innerHTML = "<em>Checking…</em>";
   actions.innerHTML = "";
-  status.textContent = "Checking…";
 
-  const r = await fetch(`${API}/me/client-profile`, { headers: authHeaders() });
-  if (r.status === 404) {
-    status.textContent = "No client profile yet.";
-    const btn = document.createElement("button");
-    btn.className = "btn";
-    btn.textContent = "Create client profile";
-    btn.onclick = async () => {
-      const res = await fetch(`${API}/me/client-profile`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: "{}"
-      });
-      if (res.ok) {
-        msgOk("Client profile created.");
-        loadClientProfile();
-      } else {
-        const e = await res.json().catch(()=>({detail:"Error"}));
-        msgErr(e.detail || "Could not create client profile");
-      }
-    };
-    actions.appendChild(btn);
-  } else if (r.ok) {
-    const prof = await r.json();
-    status.textContent = "Profile is set up.";
-    const view = document.createElement("div");
-    view.innerHTML = `<p><strong>Rating:</strong> ${prof.rating_avg ?? 0} (${prof.rating_count} reviews)</p>`;
-    actions.appendChild(view);
-  } else {
-    status.textContent = "Error loading client profile.";
-  }
-}
-
-async function loadProviderProfile() {
-  const status = document.getElementById("providerStatus");
-  const actions = document.getElementById("providerActions");
-  actions.innerHTML = "";
-  status.textContent = "Checking…";
-
-  const r = await fetch(`${API}/me/provider-profile`, { headers: authHeaders() });
-  if (r.status === 404) {
-    status.textContent = "No provider profile yet.";
-    const form = document.createElement("form");
-    form.className = "form";
-    form.innerHTML = `
-      <label>Business name
-        <input name="business_name" type="text" />
-      </label>
-      <label>Tax ID
-        <input name="tax_id" type="text" />
-      </label>
-      <label>Service radius (km)
-        <input name="service_radius_km" type="number" min="0" step="0.1" />
-      </label>
-      <button class="btn" type="submit">Create provider profile</button>
-    `;
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      const payload = {
-        business_name: e.target.business_name.value || null,
-        tax_id: e.target.tax_id.value || null,
-        service_radius_km: e.target.service_radius_km.value ? Number(e.target.service_radius_km.value) : null
-      };
-      const res = await fetch(`${API}/me/provider-profile`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        msgOk("Provider profile created.");
-        loadProviderProfile();
-      } else {
-        const err = await res.json().catch(()=>({detail:"Error"}));
-        msgErr(err.detail || "Could not create provider profile");
-      }
-    };
-    actions.appendChild(form);
-  } else if (r.ok) {
-    const prof = await r.json();
-    status.textContent = "Profile is set up.";
-    const view = document.createElement("div");
-    view.innerHTML = `
-      <p><strong>Business:</strong> ${prof.business_name ?? "—"}</p>
-      <p><strong>Tax ID:</strong> ${prof.tax_id ?? "—"}</p>
-      <p><strong>Radius (km):</strong> ${prof.service_radius_km ?? "—"}</p>
-      <div style="margin-top:.5rem;">
-        <button class="btn btn-outline" onclick="editProvider()">Edit</button>
-      </div>
-    `;
-    actions.appendChild(view);
-  } else {
-    status.textContent = "Error loading provider profile.";
-  }
-}
-
-function editProvider() {
-  msgOk("Edit flow coming next. For now, delete and recreate via API.");
-}
-
-<!-- inside <script> of dashboard.html -->
-async function loadProviderProfile() {
-  const status = document.getElementById("providerStatus");
-  const actions = document.getElementById("providerActions");
-  actions.innerHTML = "";
-  status.textContent = "Checking…";
-
-  const r = await fetch(`${API}/me/provider-profile`, { headers: authHeaders() });
-  if (r.status === 404) {
-    // ... unchanged create form (keep as-is)
-    /* existing no-profile code here */
-  } else if (r.ok) {
-    const prof = await r.json();
-    status.textContent = "Profile is set up.";
-    const view = document.createElement("div");
-    view.innerHTML = `
-      <p><strong>Business:</strong> ${prof.business_name ?? "—"}</p>
-      <p><strong>Tax ID:</strong> ${prof.tax_id ?? "—"}</p>
-      <p><strong>Radius (km):</strong> ${prof.service_radius_km ?? "—"}</p>
-      <div style="margin:.5rem 0 1rem;">
-        <a class="btn" href="/machines">Manage machines</a>
-      </div>
-      <div id="myMachines"><em>Loading machines…</em></div>
-    `;
-    actions.appendChild(view);
-
-    // Load machines preview
-    try{
-      const mr = await fetch(`${API}/machines/`, { headers: authHeaders() });
-      if(mr.ok){
-        const machines = await mr.json();
-        const box = view.querySelector("#myMachines");
-        if(!machines.length){ box.innerHTML = "<p>No machines yet.</p>"; return; }
-        const ul = document.createElement("ul");
-        machines.forEach(m => {
-          const li = document.createElement("li");
-          li.textContent = `${m.make} ${m.model} ${m.year ?? ""} — status: ${m.status}`;
-          ul.appendChild(li);
+  try{
+    const r = await fetch(`${API}/me/client-profile`, { headers: authHeaders() });
+    if (r.status === 404) {
+      status.textContent = "No client profile yet.";
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.textContent = "Create client profile";
+      btn.onclick = async () => {
+        const res = await fetch(`${API}/me/client-profile`, {
+          method: "POST",
+          headers: { "Content-Type":"application/json", ...authHeaders() },
+          body: "{}"
         });
-        box.innerHTML = "";
-        box.appendChild(ul);
-      } else {
-        view.querySelector("#myMachines").textContent = "Could not load machines.";
-      }
-    }catch(e){
-      view.querySelector("#myMachines").textContent = "Error loading machines.";
+        if (res.ok) { msgOk("Client profile created"); loadClientProfile(); }
+        else { const e = await safeJson(res); msgErr(e?.detail || "Could not create client profile"); }
+      };
+      actions.appendChild(btn);
+    } else if (r.ok) {
+      const prof = await r.json();
+      status.textContent = "Profile is set up.";
+      actions.innerHTML = `<p><strong>Rating:</strong> ${prof.rating_avg ?? 0} (${prof.rating_count} reviews)</p>`;
+    } else {
+      status.textContent = "Error loading client profile.";
     }
-  } else {
-    status.textContent = "Error loading provider profile.";
+  }catch{ status.textContent = "Error loading client profile."; }
+}
+
+/* -------- Provider profile -------- */
+async function loadProviderProfile(){
+  const status = document.getElementById("providerStatus");
+  const actions = document.getElementById("providerActions");
+  status.innerHTML = "<em>Checking…</em>";
+  actions.innerHTML = "";
+
+  try{
+    const r = await fetch(`${API}/me/provider-profile`, { headers: authHeaders() });
+    if (r.status === 404) {
+      status.textContent = "No provider profile yet.";
+      const form = document.createElement("form");
+      form.className = "form";
+      form.innerHTML = `
+        <label>Business name
+          <input name="business_name" />
+        </label>
+        <label>Tax ID
+          <input name="tax_id" />
+        </label>
+        <label>Service radius (km)
+          <input name="service_radius_km" type="number" min="0" step="0.1" />
+        </label>
+        <button class="btn" type="submit">Create provider profile</button>
+      `;
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const payload = {
+          business_name: e.target.business_name.value || null,
+          tax_id: e.target.tax_id.value || null,
+          service_radius_km: e.target.service_radius_km.value ? Number(e.target.service_radius_km.value) : null
+        };
+        const res = await fetch(`${API}/me/provider-profile`, {
+          method: "POST",
+          headers: { "Content-Type":"application/json", ...authHeaders() },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) { msgOk("Provider profile created"); loadProviderProfile(); }
+        else { const err = await safeJson(res); msgErr(err?.detail || "Could not create provider profile"); }
+      };
+      actions.appendChild(form);
+    } else if (r.ok) {
+      const prof = await r.json();
+      status.textContent = "Profile is set up.";
+      actions.innerHTML = `
+        <p><strong>Business:</strong> ${esc(prof.business_name) || "—"}</p>
+        <p><strong>Tax ID:</strong> ${esc(prof.tax_id) || "—"}</p>
+        <p><strong>Radius (km):</strong> ${prof.service_radius_km ?? "—"}</p>
+        <div style="margin-top:.5rem; display:flex; gap:.5rem;">
+          <a class="btn" href="/machines">Manage machines</a>
+          <a class="btn btn-outline" href="/listings">Manage listings & pricing</a>
+        </div>
+      `;
+    } else {
+      status.textContent = "Error loading provider profile.";
+    }
+  }catch{ status.textContent = "Error loading provider profile."; }
+}
+
+/* -------- Machines preview (providers) -------- */
+async function loadMachinesPreview(){
+  const box = document.getElementById("machinesBox");
+  const list = document.getElementById("machinesPreview");
+  show(box, true);
+  list.innerHTML = "<em>Loading…</em>";
+
+  try{
+    const r = await fetch(`${API}/machines/`, { headers: authHeaders() });
+    if(!r.ok){ list.textContent = "Failed to load machines."; return; }
+    const machines = await r.json();
+    if(!machines.length){ list.innerHTML = "<p>No machines yet.</p>"; return; }
+    const ul = document.createElement("ul");
+    ul.style.margin = 0; ul.style.paddingLeft = "1.2rem";
+    machines.forEach(m => {
+      const li = document.createElement("li");
+      li.textContent = `${m.make} ${m.model} ${m.year ?? ""} — status: ${m.status}`;
+      ul.appendChild(li);
+    });
+    list.innerHTML = "";
+    list.appendChild(ul);
+  }catch{
+    list.textContent = "Error loading machines.";
   }
 }
 
+/* -------- helpers -------- */
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+async function safeJson(r){ try{ return await r.json(); }catch{ return null; } }
 </script>
 {% endblock %}
