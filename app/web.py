@@ -36,3 +36,7 @@ def fields_page(request: Request):
 @router.get("/inbox")
 def provider_inbox(request: Request):
     return templates.TemplateResponse("provider_inbox.html", {"request": request})
+
+@router.get("/marketplace")
+def marketplace_page(request: Request):
+    return templates.TemplateResponse("marketplace.html", {"request": request})

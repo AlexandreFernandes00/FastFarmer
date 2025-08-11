@@ -29,11 +29,21 @@ def list_my_requests(db: Session = Depends(get_db), current: User = Depends(requ
 
 @router.post("/", response_model=WorkRequestRead, status_code=201)
 def create_request(payload: WorkRequestCreate, db: Session = Depends(get_db), current: User = Depends(require_client)):
-    prof = get_client_profile(db, current.id)
-    # ensure field belongs to this client
-    field = db.query(Field).filter(Field.id == payload.field_id, Field.client_id == prof.id).first()
-    if not field: raise HTTPException(status_code=404, detail="Field not found")
-    req = WorkRequest(client_id=prof.id, **payload.model_dump())
+    cprof = get_client_profile(db, current.id)
+
+    # field must belong to this client
+    field = db.query(Field).filter(Field.id == payload.field_id, Field.client_id == cprof.id).first()
+    if not field:
+        raise HTTPException(status_code=404, detail="Field not found")
+
+    # listing must exist and be active (optional status check)
+    listing = db.execute(
+        sa.select(Listing).where(Listing.id == payload.listing_id)
+    ).scalar_one_or_none()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    req = WorkRequest(client_id=cprof.id, **payload.model_dump())
     db.add(req); db.commit(); db.refresh(req)
     return req
 

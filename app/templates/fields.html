@@ -278,3 +278,5 @@ function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','
 async function safeJson(r){ try{ return await r.json(); }catch{ return null; } }
 </script>
 {% endblock %}
+
+
