@@ -1,232 +1,151 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>{% block title %}FastFarmer{% endblock %}</title>
   <style>
     :root{
-      --bg:#0b1020; --panel:#12182b; --muted:#8a93ad; --text:#e9edf5;
-      --brand:#65d48c; --border:#243048; --card:#141b31;
+      --bg:#f7f9fc; --text:#1e2430; --muted:#5b6577; --brand:#167e56;
+      --panel:#ffffff; --border:#e3e8f0; --hover:#f0f4f9;
     }
     *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
-      background:linear-gradient(180deg,#0b1020,#101935 35%,#0e142a);
-      color:var(--text);
-    }
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; color:var(--text); background:var(--bg);}
     a{color:var(--brand); text-decoration:none}
     a:hover{opacity:.9}
     .btn{
-      background:var(--brand); color:#0a0f1f; border:none; padding:.6rem .9rem; border-radius:.65rem; cursor:pointer;
-      font-weight:600; box-shadow:0 2px 0 rgba(0,0,0,.2);
+      background:var(--brand); color:#fff; border:none; padding:.55rem .85rem; border-radius:.6rem; cursor:pointer; font-weight:600;
     }
-    .btn:disabled{opacity:.6; cursor:not-allowed}
     .btn-outline{
-      background:transparent; color:var(--text); border:1px solid var(--border);
-      padding:.55rem .9rem; border-radius:.65rem; cursor:pointer;
+      background:#fff; color:var(--text); border:1px solid var(--border); padding:.5rem .85rem; border-radius:.6rem; cursor:pointer;
     }
-    .input, input, textarea, select{
-      width:100%; background:#0f162b; border:1px solid var(--border); color:var(--text);
-      border-radius:.6rem; padding:.6rem .7rem;
+    input, select, textarea{
+      width:100%; background:#fff; border:1px solid var(--border); color:var(--text); border-radius:.5rem; padding:.55rem .65rem;
     }
     .card{
-      background: radial-gradient(120% 120% at 0% 0%, #0d1327, #0b1020 80%);
-      border:1px solid var(--border); border-radius:1rem; padding:1rem;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.02), 0 10px 30px rgba(0,0,0,.25);
+      background:var(--panel); border:1px solid var(--border); border-radius:.9rem; padding:1rem;
+      box-shadow:0 1px 2px rgba(0,0,0,.04);
     }
     .grid{display:grid; gap:.75rem}
-    .form label{display:block; font-size:.9rem; color:#c6cbe0}
+    .form label{display:block; font-size:.92rem; color:#2d3648}
     .form label input, .form label select, .form label textarea{margin-top:.35rem}
-    .result{margin-top:1rem; padding:.65rem .8rem; border-radius:.6rem; border:1px solid var(--border)}
-    .result.ok{background:#0f1f17; color:#b4f1c8; border-color:#1f3a2b}
-    .result.error{background:#251317; color:#ffb5c0; border-color:#48222a}
+    .result{margin-top:1rem; padding:.6rem .75rem; border-radius:.5rem; border:1px solid var(--border)}
+    .result.ok{background:#e9f7ef; color:#0a6e43; border-color:#c8ead7}
+    .result.error{background:#fff1f2; color:#9f1239; border-color:#ffe4e6}
 
     /* Layout */
-    .layout{display:grid; grid-template-columns: 260px 1fr; min-height:100vh}
-    .sidebar{
-      position:sticky; top:0; height:100vh; padding:1rem; border-right:1px solid var(--border);
-      background: radial-gradient(120% 120% at 0% 0%, #0c1329, #0b0f1f 85%);
-    }
-    .brand{display:flex; align-items:center; gap:.6rem; font-weight:800; letter-spacing:.3px; margin-bottom:1rem}
-    .brand .dot{width:10px; height:10px; border-radius:50%; background:var(--brand); box-shadow:0 0 16px var(--brand)}
-    .nav-section{margin-top:1rem}
-    .nav-title{font-size:.75rem; letter-spacing:.08em; color:#98a1bd; text-transform:uppercase; margin:.7rem .4rem}
-    .nav a{
-      display:flex; align-items:center; gap:.55rem; padding:.55rem .65rem; border-radius:.55rem; color:#cfd7ef;
-    }
-    .nav a:hover{background:#0e1730}
-    .nav a.active{background:#0f1f34; color:#e9efff; border:1px solid #233457}
-
-    .main{
-      display:grid; grid-template-rows: auto 1fr; min-height:100vh;
-    }
     .topbar{
-      position:sticky; top:0; z-index:10; backdrop-filter: blur(6px);
-      background: rgba(13,19,40,.65); border-bottom:1px solid var(--border);
-      display:flex; gap:.75rem; align-items:center; padding:.6rem .9rem;
+      position:sticky; top:0; z-index:20; background:var(--panel); border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:.75rem; padding:.6rem .9rem;
     }
-    .topbar .left{display:flex; gap:.6rem; align-items:center}
-    .topbar .right{margin-left:auto; display:flex; gap:.5rem; align-items:center}
-    .search{
-      flex:1; display:flex; align-items:center; gap:.5rem; max-width:700px; margin-inline: .25rem 1rem;
-      background:#0f162b; border:1px solid var(--border); border-radius:.7rem; padding:.45rem .6rem;
-    }
-    .search input{background:transparent; border:none; outline:none; color:var(--text); width:100%}
-    .content{padding:1rem; max-width:1200px; margin:0 auto; width:100%}
+    .brand{font-weight:800; color:var(--text);}
+    .spacer{flex:1}
+    .search{display:flex; align-items:center; gap:.5rem; max-width:700px; flex:1; background:#fff; border:1px solid var(--border); border-radius:.6rem; padding:.35rem .55rem;}
+    .search input{border:none; outline:none; background:transparent}
+    .content{padding:1rem; max-width:1200px; margin:0 auto}
 
-    /* Responsive */
-    .sidebar-toggle{display:none}
-    @media (max-width: 980px){
-      .layout{grid-template-columns: 0 1fr}
-      .sidebar{position:fixed; left:0; top:0; width:260px; transform: translateX(-100%); transition: transform .2s ease;}
-      .sidebar.open{transform: translateX(0)}
-      .sidebar-toggle{display:inline-flex}
+    /* Burger menu */
+    .burger{position:relative}
+    .burger-btn{
+      display:inline-flex; align-items:center; gap:.5rem; padding:.45rem .65rem; border:1px solid var(--border); border-radius:.6rem; background:#fff; cursor:pointer;
+    }
+    .burger-menu{
+      position:absolute; top:calc(100% + .4rem); left:0; min-width:240px; background:#fff; border:1px solid var(--border);
+      border-radius:.6rem; box-shadow:0 8px 24px rgba(0,0,0,.08); padding:.4rem; display:none;
+    }
+    .burger.open .burger-menu{display:block}
+    .menu-section{padding:.35rem .35rem .2rem; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:#6b7280}
+    .menu a{
+      display:flex; align-items:center; gap:.5rem; color:var(--text); padding:.5rem .6rem; border-radius:.5rem;
+    }
+    .menu a:hover{background:var(--hover)}
+    .active{background:var(--hover)}
+
+    @media (max-width: 820px){
+      .search{max-width:none}
     }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
-  <div class="layout">
-    <!-- Sidebar -->
-    <aside id="sidebar" class="sidebar">
-      <div class="brand">
-        <span class="dot"></span>
-        <span>FastFarmer</span>
-      </div>
+  <header class="topbar">
+    <div class="brand"><a href="/">FastFarmer</a></div>
 
-      <!-- CLIENT MENU -->
-      <div id="clientMenu" class="nav-section" hidden>
-        <div class="nav-title">Client</div>
-        <nav class="nav">
-          <a href="/marketplace" data-match="^/marketplace">Marketplace</a>
-          <a href="/fields" data-match="^/fields">My Fields</a>
-          <a href="/requests" data-match="^/requests">My Requests</a>
-        </nav>
-      </div>
+    <a class="btn btn-outline" href="/dashboard">Dashboard</a>
 
-      <!-- PROVIDER MENU -->
-      <div id="providerMenu" class="nav-section" hidden>
-        <div class="nav-title">Provider</div>
-        <nav class="nav">
-          <a href="/machines" data-match="^/machines">Machines</a>
-          <a href="/listings" data-match="^/listings">Listings & Pricing</a>
-          <a href="/inbox" data-match="^/inbox">Inbox (Requests)</a>
-        </nav>
-      </div>
+    <form class="search" onsubmit="return globalSearch(event)">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M21.53 20.47l-4.66-4.66A7.94 7.94 0 0018 10a8 8 0 10-8 8 7.94 7.94 0 005.81-2.13l4.66 4.66a.75.75 0 001.06-1.06zM4.5 10a5.5 5.5 0 1111 0 5.5 5.5 0 01-11 0z"/></svg>
+      <input id="globalQuery" placeholder="Search listings…"/>
+      <button class="btn" type="submit">Search</button>
+    </form>
 
-      <!-- ADMIN MENU -->
-      <div id="adminMenu" class="nav-section" hidden>
-        <div class="nav-title">Admin</div>
-        <nav class="nav">
-          <a href="/admin" data-match="^/admin">Console</a>
-        </nav>
-      </div>
-    </aside>
+    <div class="spacer"></div>
 
-    <!-- Main area -->
-    <section class="main">
-      <!-- Topbar -->
-      <header class="topbar">
-        <button class="btn btn-outline sidebar-toggle" onclick="toggleSidebar()">Menu</button>
-
-        <div class="left">
-          <a class="btn btn-outline" href="/dashboard">Dashboard</a>
+    <!-- Burger -->
+    <div id="burger" class="burger">
+      <button class="burger-btn" type="button" onclick="toggleBurger()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18M3 12h18M3 18h18"/></svg> Menu
+      </button>
+      <div class="burger-menu card">
+        <div id="clientSection" hidden>
+          <div class="menu-section">Client</div>
+          <nav class="menu">
+            <a href="/marketplace" data-match="^/marketplace">Marketplace</a>
+            <a href="/fields" data-match="^/fields">My Fields</a>
+            <a href="/requests" data-match="^/requests">My Requests</a>
+          </nav>
         </div>
-
-        <form class="search" onsubmit="return globalSearch(event)">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M21.53 20.47l-4.66-4.66A7.94 7.94 0 0018 10a8 8 0 10-8 8 7.94 7.94 0 005.81-2.13l4.66 4.66a.75.75 0 001.06-1.06zM4.5 10a5.5 5.5 0 1111 0 5.5 5.5 0 01-11 0z"/></svg>
-          <input id="globalQuery" placeholder="Search listings…" />
-          <button class="btn" type="submit">Search</button>
-        </form>
-
-        <div class="right">
-          <div id="authBtns">
-            <!-- replaced by JS depending on login -->
-            <a class="btn btn-outline" href="/login">Login</a>
-            <a class="btn" href="/register">Register</a>
-          </div>
+        <div id="providerSection" hidden>
+          <div class="menu-section">Provider</div>
+          <nav class="menu">
+            <a href="/machines" data-match="^/machines">Machines</a>
+            <a href="/listings" data-match="^/listings">Listings & Pricing</a>
+            <a href="/inbox" data-match="^/inbox">Inbox (Requests)</a>
+          </nav>
         </div>
-      </header>
+        <div id="adminSection" hidden>
+          <div class="menu-section">Admin</div>
+          <nav class="menu">
+            <a href="/admin" data-match="^/admin">Console</a>
+          </nav>
+        </div>
+      </div>
+    </div>
 
-      <!-- Page content -->
-      <main class="content">
-        {% block content %}{% endblock %}
-      </main>
-    </section>
-  </div>
+    <!-- Auth -->
+    <div id="authBtns" style="margin-left:.5rem;">
+      <a class="btn btn-outline" href="/login">Login</a>
+      <a class="btn" href="/register">Register</a>
+    </div>
+  </header>
+
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
 
   <script>
+    // --- Auth & menu logic (runs on every page) ---
     const API = "/api/v1";
     let token = localStorage.getItem("token");
+    let me = null;
 
-    function toggleSidebar(){
-      document.getElementById("sidebar").classList.toggle("open");
-    }
+    document.addEventListener("DOMContentLoaded", () => {
+      initBase();   // make sure this runs after DOM is ready
+    });
 
-    function highlightActive(){
-      const path = location.pathname;
-      document.querySelectorAll(".nav a").forEach(a => {
-        const pattern = a.getAttribute("data-match");
-        if(!pattern) return;
-        try{
-          const re = new RegExp(pattern);
-          if(re.test(path)) a.classList.add("active");
-        }catch{}
-      });
-    }
-
-    function renderAuth(me){
-      const wrap = document.getElementById("authBtns");
-      if(!me){
-        wrap.innerHTML = `
-          <a class="btn btn-outline" href="/login">Login</a>
-          <a class="btn" href="/register">Register</a>
-        `;
-        return;
+    function toggleBurger(){
+      const b = document.getElementById("burger");
+      b.classList.toggle("open");
+      // click outside to close
+      if (b.classList.contains("open")) {
+        const onDocClick = (e) => {
+          if (!b.contains(e.target)) {
+            b.classList.remove("open");
+            document.removeEventListener("click", onDocClick);
+          }
+        };
+        setTimeout(()=>document.addEventListener("click", onDocClick), 0);
       }
-      wrap.innerHTML = `
-        <span style="color:#cfd7ef;opacity:.85;">Hi, ${escapeHtml(me.full_name || me.email)}</span>
-        <button class="btn btn-outline" onclick="logout()">Logout</button>
-      `;
-    }
-
-    function renderMenus(me){
-      // default hide
-      document.getElementById("clientMenu").hidden = true;
-      document.getElementById("providerMenu").hidden = true;
-      document.getElementById("adminMenu").hidden = true;
-
-      if(!me) return;
-      if(me.is_client)   document.getElementById("clientMenu").hidden = false;
-      if(me.is_provider) document.getElementById("providerMenu").hidden = false;
-      if(me.is_admin)    document.getElementById("adminMenu").hidden = false;
-    }
-
-    async function initBase(){
-      highlightActive();
-
-      if(!token){
-        renderAuth(null);
-        return;
-      }
-      try{
-        const r = await fetch(`${API}/auth/me`, { headers: { "Authorization": "Bearer " + token } });
-        if(!r.ok) throw 0;
-        const me = await r.json();
-        renderAuth(me);
-        renderMenus(me);
-      }catch{
-        // bad token
-        localStorage.removeItem("token");
-        renderAuth(null);
-      }
-    }
-
-    function logout(){
-      localStorage.removeItem("token");
-      location.href = "/login";
     }
 
     function globalSearch(e){
@@ -237,9 +156,70 @@
       return false;
     }
 
-    function escapeHtml(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    async function initBase(){
+      highlightActiveLinks();
+      await loadAuth();        // ensure auth shown correctly on ALL pages
+      renderMenus();
+    }
 
-    initBase();
+    async function loadAuth(){
+      const el = document.getElementById("authBtns");
+      // default: logged out
+      const showLoggedOut = () => {
+        el.innerHTML = `
+          <a class="btn btn-outline" href="/login">Login</a>
+          <a class="btn" href="/register">Register</a>
+        `;
+      };
+
+      if (!token) { showLoggedOut(); return; }
+      try{
+        const r = await fetch(`${API}/auth/me`, { headers: { "Authorization": "Bearer " + token } });
+        if (!r.ok) throw 0;
+        me = await r.json();
+        el.innerHTML = `
+          <span style="color:#475569; margin-right:.4rem;">Hi, ${escapeHtml(me.full_name || me.email)}</span>
+          <button class="btn btn-outline" onclick="logout()">Logout</button>
+        `;
+      }catch{
+        // bad/expired token
+        localStorage.removeItem("token");
+        token = null;
+        me = null;
+        showLoggedOut();
+      }
+    }
+
+    function logout(){
+      localStorage.removeItem("token");
+      token = null;
+      me = null;
+      location.href = "/login";
+    }
+
+    function renderMenus(){
+      // hide all sections by default
+      document.getElementById("clientSection").hidden = true;
+      document.getElementById("providerSection").hidden = true;
+      document.getElementById("adminSection").hidden = true;
+
+      if (!me) return;
+      if (me.is_client)   document.getElementById("clientSection").hidden = false;
+      if (me.is_provider) document.getElementById("providerSection").hidden = false;
+      if (me.is_admin)    document.getElementById("adminSection").hidden = false;
+    }
+
+    function highlightActiveLinks(){
+      const path = location.pathname;
+      document.querySelectorAll('[data-match]').forEach(a => {
+        const pat = a.getAttribute('data-match');
+        try{
+          if (new RegExp(pat).test(path)) a.classList.add('active');
+        }catch{}
+      });
+    }
+
+    function escapeHtml(s){ return String(s ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   </script>
 
   {% block page_scripts %}{% endblock %}
