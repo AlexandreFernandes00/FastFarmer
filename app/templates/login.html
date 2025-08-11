@@ -68,7 +68,7 @@ async function login(e) {
     localStorage.setItem("token", access_token);
     showOk("Logged in! Redirecting…");
     // TODO: change to your desired destination:
-    // location.href = "/"; 
+    location.href = "/dashboard"; 
   } catch (err) {
     console.error(err);
     showError("Unexpected error. Please try again.");

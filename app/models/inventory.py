@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, String, Integer, Numeric, Boolean, DateTime, ForeignKey, Text, CheckConstraint, text
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, ENUM as PGEnum
 from ..database import Base
 
 class Machine(Base):
@@ -36,12 +36,18 @@ class Machine(Base):
         CheckConstraint("status IN ('active','paused','retired')", name="machines_status_ck"),
     )
 
-
 class Listing(Base):
     __tablename__ = "listings"
 
-    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("uuid_generate_v4()"))
-    type = Column(String, nullable=False)  # 'machine' | 'service'
+    id = Column(PGUUID(as_uuid=True), primary_key=True,
+                default=uuid.uuid4, server_default=text("uuid_generate_v4()"))
+
+    # map to existing PostgreSQL ENUM type 'listing_type'
+    type = Column(
+        PGEnum('machine', 'service', name='listing_type', create_type=False),
+        nullable=False
+    )
+
     ref_machine_id = Column(PGUUID(as_uuid=True), ForeignKey("machines.id", ondelete="CASCADE"), nullable=True)
     ref_service_id = Column(PGUUID(as_uuid=True), ForeignKey("services.id", ondelete="CASCADE"), nullable=True)
     provider_id = Column(PGUUID(as_uuid=True), ForeignKey("provider_profiles.id", ondelete="CASCADE"), nullable=False)
@@ -58,18 +64,24 @@ class Listing(Base):
         CheckConstraint("status IN ('active','paused','archived')", name="listings_status_ck"),
     )
 
-
 class PricingRule(Base):
     __tablename__ = "pricing_rules"
 
-    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("uuid_generate_v4()"))
-    owner_type = Column(String, nullable=False)  # 'machine' | 'service'
+    id = Column(PGUUID(as_uuid=True), primary_key=True,
+                default=uuid.uuid4, server_default=text("uuid_generate_v4()"))
+
+    # map to existing PostgreSQL ENUM type 'listing_type'
+    owner_type = Column(
+        PGEnum('machine', 'service', name='listing_type', create_type=False),
+        nullable=False
+    )
     owner_id = Column(PGUUID(as_uuid=True), nullable=False)
 
-    unit = Column(String, nullable=False)  # 'hour' | 'hectare' | 'km' | 'job'
+    unit = unit = Column(PGEnum('hour','hectare','km','job', name='pricing_unit', create_type=False), nullable=False)  # DB has enum 'pricing_unit'; map if you want (see below)
     base_price = Column(Numeric(12,2), nullable=False)
     min_qty = Column(Numeric(12,2), server_default=text("0"))
     transport_flat_fee = Column(Numeric(12,2), server_default=text("0"))
     transport_per_km = Column(Numeric(12,3), server_default=text("0"))
-    surcharges = Column(Text)  # keep JSON later; Text here to avoid driver JSON diffs
+    surcharges = Column(Text)
     currency = Column(String, nullable=False, server_default=text("'EUR'"))
+
