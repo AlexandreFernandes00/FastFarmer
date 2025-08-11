@@ -25,7 +25,7 @@ class PricingUpdate(BaseModel):
     currency: Optional[str] = None
     surcharges: Optional[Dict[str, Any]] = None
 
-class PricingOut(PricingBase):
+class PricingRead(PricingBase):  # <- renamed from PricingOut
     id: UUID
 
     class Config:
