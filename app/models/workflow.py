@@ -1,7 +1,17 @@
 import uuid
-from sqlalchemy import Column, String, Text, DateTime, Numeric, ForeignKey, CheckConstraint, text
+from sqlalchemy import Column, String, Text, DateTime, Numeric, ForeignKey, CheckConstraint, text, Enum as PgEnum
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 from ..database import Base
+
+class RequestStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    in_progress = "in_progress"
+    completed = "completed"
+    rejected = "rejected"
+    open = "open"
+    quoted = "quoted"
+
 
 class WorkRequest(Base):
     __tablename__ = "work_requests"
@@ -16,7 +26,11 @@ class WorkRequest(Base):
     time_window = Column(String, nullable=True)   # e.g., "morning", "afternoon", "flexible"
     notes = Column(Text, nullable=True)
 
-    status = Column(String, nullable=False, server_default=text("'open'"))  # open|quoted|accepted|cancelled
+    status = Column(
+        PgEnum(RequestStatus, name="request_status", create_type=False),
+        nullable=False,
+        default=RequestStatus.pending,
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
