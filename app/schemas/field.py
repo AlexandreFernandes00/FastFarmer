@@ -1,17 +1,18 @@
-from uuid import UUID
 from typing import Any, Dict, Optional
+from uuid import UUID
 from pydantic import BaseModel, ConfigDict, field_validator
 
 class FieldCreate(BaseModel):
     name: str
-    geojson: Dict[str, Any]
+    geojson: Dict[str, Any]              # { type: "Feature", geometry: {...} }
     area_ha: float
     centroid: Optional[Dict[str, Any]] = None
 
     @field_validator("area_ha")
     @classmethod
-    def nonneg(cls, v): 
-        if v <= 0: raise ValueError("area_ha must be > 0")
+    def positive_area(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("area_ha must be > 0")
         return v
 
 class FieldUpdate(BaseModel):

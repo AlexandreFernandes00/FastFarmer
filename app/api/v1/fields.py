@@ -19,12 +19,28 @@ def get_client_profile(db: Session, user_id: UUID) -> ClientProfile:
 @router.get("/", response_model=list[FieldRead])
 def list_fields(db: Session = Depends(get_db), current: User = Depends(require_client)):
     prof = get_client_profile(db, current.id)
-    return db.query(Field).filter(Field.client_id == prof.id).order_by(Field.created_at.desc()).all()
+    return (
+        db.query(Field)
+        .filter(Field.client_id == prof.id)
+        .order_by(Field.created_at.desc())
+        .all()
+    )
 
 @router.post("/", response_model=FieldRead, status_code=201)
 def create_field(payload: FieldCreate, db: Session = Depends(get_db), current: User = Depends(require_client)):
     prof = get_client_profile(db, current.id)
-    f = Field(client_id=prof.id, **payload.model_dump())
+    # Minimal validation: ensure a geometry exists
+    geom = payload.geojson.get("geometry") if isinstance(payload.geojson, dict) else None
+    if not geom:
+        raise HTTPException(status_code=400, detail="geojson.geometry is required")
+
+    f = Field(
+        client_id=prof.id,
+        name=payload.name,
+        geojson=payload.geojson,
+        area_ha=payload.area_ha,
+        centroid=payload.centroid
+    )
     db.add(f); db.commit(); db.refresh(f)
     return f
 
@@ -32,7 +48,8 @@ def create_field(payload: FieldCreate, db: Session = Depends(get_db), current: U
 def update_field(field_id: UUID, payload: FieldUpdate, db: Session = Depends(get_db), current: User = Depends(require_client)):
     prof = get_client_profile(db, current.id)
     f = db.query(Field).filter(Field.id == field_id, Field.client_id == prof.id).first()
-    if not f: raise HTTPException(status_code=404, detail="Field not found")
+    if not f:
+        raise HTTPException(status_code=404, detail="Field not found")
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(f, k, v)
     db.add(f); db.commit(); db.refresh(f)
@@ -42,5 +59,6 @@ def update_field(field_id: UUID, payload: FieldUpdate, db: Session = Depends(get
 def delete_field(field_id: UUID, db: Session = Depends(get_db), current: User = Depends(require_client)):
     prof = get_client_profile(db, current.id)
     f = db.query(Field).filter(Field.id == field_id, Field.client_id == prof.id).first()
-    if not f: raise HTTPException(status_code=404, detail="Field not found")
+    if not f:
+        raise HTTPException(status_code=404, detail="Field not found")
     db.delete(f); db.commit()

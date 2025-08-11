@@ -10,9 +10,9 @@ class Field(Base):
     client_id = Column(PGUUID(as_uuid=True), ForeignKey("client_profiles.id", ondelete="CASCADE"), nullable=False)
 
     name = Column(String, nullable=False)
-    geojson = Column(JSONB, nullable=False)          # Polygon/Multipolygon GeoJSON
-    area_ha = Column(Numeric(12, 4), nullable=False)  # computed client-side with turf.js
-    centroid = Column(JSONB, nullable=True)           # {type:"Point", coordinates:[lon,lat]}
+    geojson = Column(JSONB, nullable=False)          # full Feature or just geometry; we’re sending Feature
+    area_ha = Column(Numeric(12, 4), nullable=False) # cached area in hectares (frontend or server)
+    centroid = Column(JSONB, nullable=True)          # GeoJSON Point
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
