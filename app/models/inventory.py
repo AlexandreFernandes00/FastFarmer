@@ -66,8 +66,8 @@ class Listing(Base):
 
 class PricingRule(Base):
     __tablename__ = "pricing_rules"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    listing_id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    listing_id = Column(PGUUID(as_uuid=True), default=uuid.uuid4)
 
     unit = Column(String, nullable=False)
     base_price = Column(Float, nullable=False)
