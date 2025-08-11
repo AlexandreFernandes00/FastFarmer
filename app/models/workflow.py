@@ -1,4 +1,5 @@
 import uuid
+import enum 
 from sqlalchemy import Column, String, Text, DateTime, Numeric, ForeignKey, CheckConstraint, text, Enum as PgEnum
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 from ..database import Base
