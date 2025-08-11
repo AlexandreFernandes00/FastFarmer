@@ -6,10 +6,9 @@ from fastapi import HTTPException
 from ...database import get_db
 from ...models.inventory import PricingRule, Machine
 from ...models.profile import ProviderProfile
-from ...schemas.pricing import PricingCreate, PricingUpdate, PricingRead
 from ...dependencies.auth import require_provider
 from ...models.user import User
-from ...models.pricing_rule import PricingRule
+
 
 router = APIRouter()
 
