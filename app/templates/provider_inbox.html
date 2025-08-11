@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Provider Inbox (Requests)</h2>
+
+<div id="gate" class="card" hidden>
+  <p>You must be logged in as a <strong>provider</strong>.</p>
+  <p><a class="btn" href="/login">Login</a></p>
+</div>
+
+<section id="content" hidden>
+  <div class="card">
+    <h3>Open requests</h3>
+    <div id="list">Loading…</div>
+  </div>
+</section>
+
+<div id="msg" class="result" hidden></div>
+
+<script>
+const API="/api/v1";
+let token=localStorage.getItem("token");
+function authHeaders(){ return token ? {"Authorization":"Bearer "+token} : {}; }
+function show(el, yes=true){ el.hidden=!yes; }
+function msgOk(t){ const m=document.getElementById("msg"); m.className="result ok"; m.hidden=false; m.textContent=t; }
+function msgErr(t){ const m=document.getElementById("msg"); m.className="result error"; m.hidden=false; m.textContent=t; }
+
+(async function init(){
+  if(!token){ show(document.getElementById("gate"), true); return; }
+  const me = await fetch(`${API}/auth/me`, { headers: authHeaders() }).then(r=>r.ok?r.json():null);
+  if(!me || !me.is_provider){ show(document.getElementById("gate"), true); return; }
+  show(document.getElementById("content"), true);
+  await loadRequests();
+})();
+
+async function loadRequests(){
+  const box = document.getElementById("list");
+  const r = await fetch(`${API}/requests/open`, { headers: authHeaders() });
+  if(!r.ok){ box.textContent="Failed to load."; return; }
+  const rows = await r.json();
+  if(!rows.length){ box.innerHTML="<p>No open requests yet.</p>"; return; }
+  const table=document.createElement("table"); table.style.width="100%"; table.style.borderCollapse="collapse";
+  table.innerHTML = `
+    <thead><tr>
+      <th>Request</th><th>Desired</th><th>Status</th><th style="text-align:right;"></th>
+    </tr></thead><tbody></tbody>`;
+  const tb=table.querySelector("tbody");
+  rows.forEach(rq=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`
+      <td>${rq.id}</td>
+      <td>${rq.desired_date ?? "—"} (${rq.time_window ?? "—"})</td>
+      <td>${rq.status}</td>
+      <td style="text-align:right">
+        <button class="btn btn-outline" onclick='quote("${rq.id}")'>Send quote</button>
+      </td>`;
+    tb.appendChild(tr);
+  });
+  box.innerHTML=""; box.appendChild(table);
+}
+
+async function quote(request_id){
+  const total = prompt("Total estimate (€):");
+  if(total==null) return;
+  let breakdown = null;
+  const raw = prompt('Optional breakdown JSON (e.g. {"hour":240,"transport":50})');
+  if(raw){ try{ breakdown = JSON.parse(raw); } catch{ msgErr("Invalid JSON for breakdown"); return; } }
+  const r = await fetch(`${API}/quotes/`, {
+    method:"POST",
+    headers: { "Content-Type":"application/json", ...authHeaders() },
+    body: JSON.stringify({ request_id, total_estimate: Number(total), breakdown })
+  });
+  if(!r.ok){ const e = await r.json().catch(()=>({detail:"Error"})); msgErr(e.detail || "Quote failed"); return; }
+  msgOk("Quote sent.");
+  await loadRequests();
+}
+</script>
+{% endblock %}

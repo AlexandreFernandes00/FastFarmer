@@ -28,3 +28,11 @@ def machines_page(request: Request):
 @router.get("/listings")
 def listings_page(request: Request):
     return templates.TemplateResponse("listings.html", {"request": request})
+
+@router.get("/fields")
+def fields_page(request: Request):
+    return templates.TemplateResponse("fields.html", {"request": request})
+
+@router.get("/inbox")
+def provider_inbox(request: Request):
+    return templates.TemplateResponse("provider_inbox.html", {"request": request})
