@@ -14,7 +14,7 @@ from ...dependencies.auth import require_provider
 from ...models.inventory import Listing  # adjust path if needed
 from ...models.profile import ProviderProfile
 from ...models.user import User
-from ...models.pricing import Pricing  # <-- make sure this import matches your Pricing model
+from ...models.pricing_rule import PricingRule 
 
 router = APIRouter()
 
@@ -54,17 +54,18 @@ def shape_listing_base(l: Listing) -> dict:
     }
 
 
-def shape_price(p: Pricing) -> dict:
-    # Adjust fields if your Pricing model differs
+def shape_price(p: PricingRule) -> dict:
     return {
         "id": str(p.id),
-        "owner_type": p.owner_type,         # "listing" or "machine"
+        "owner_type": p.owner_type,
         "owner_id": str(p.owner_id),
-        "unit": p.unit,                     # "hour" | "hectare" | "km" | "job"
+        "unit": p.unit,
         "base_price": float(p.base_price) if p.base_price is not None else None,
+        "min_qty": p.min_qty,
+        "transport_flat_fee": p.transport_flat_fee,
+        "transport_per_km": p.transport_per_km,
         "currency": p.currency or "EUR",
-        "surcharges": p.surcharges or None, # JSONB
-        "minimum_qty": p.minimum_qty if hasattr(p, "minimum_qty") else None,
+        "surcharges": p.surcharges,
     }
 
 
@@ -121,20 +122,22 @@ def public_listings(
     machine_ids = [r.ref_machine_id for r in rows if getattr(r, "ref_machine_id", None)]
 
     # Fetch listing-level pricing
-    lp: list[Pricing] = []
+    lp = []
     if listing_ids:
         lp = (
-            db.query(Pricing)
-            .filter(Pricing.owner_type == "listing", Pricing.owner_id.in_(listing_ids))
+            db.query(PricingRule)
+            .filter(PricingRule.owner_type == "listing",
+                    PricingRule.owner_id.in_(listing_ids))
             .all()
         )
 
     # Fetch machine-level pricing (fallback)
-    mp: list[Pricing] = []
+    mp = []
     if machine_ids:
         mp = (
-            db.query(Pricing)
-            .filter(Pricing.owner_type == "machine", Pricing.owner_id.in_(machine_ids))
+            db.query(PricingRule)
+            .filter(PricingRule.owner_type == "machine",
+                    PricingRule.owner_id.in_(machine_ids))
             .all()
         )
 
@@ -181,10 +184,18 @@ def public_get_one(
         prices: List[dict] = []
         # listing-level
         lp = (
-            db.query(Pricing)
-            .filter(Pricing.owner_type == "listing", Pricing.owner_id == listing_id)
+            db.query(PricingRule)
+            .filter(PricingRule.owner_type == "listing",
+                    PricingRule.owner_id == listing_id)
             .all()
         )
+        if getattr(l, "ref_machine_id", None):
+            mp = (
+                db.query(PricingRule)
+                .filter(PricingRule.owner_type == "machine",
+                        PricingRule.owner_id == l.ref_machine_id)
+                .all()
+            )
         prices.extend([shape_price(p) for p in lp])
         # machine-level
         if getattr(l, "ref_machine_id", None):
