@@ -1,30 +1,8 @@
-from typing import Optional
+from typing import Optional, Dict, Any
+from pydantic import BaseModel, Field
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, condecimal
 
-class PricingCreate(BaseModel):
-    owner_type: str
-    owner_id: UUID
-    unit: str
-    base_price: condecimal(max_digits=12, decimal_places=2)
-    min_qty: Optional[condecimal(max_digits=12, decimal_places=2)] = None
-    transport_flat_fee: Optional[condecimal(max_digits=12, decimal_places=2)] = None
-    transport_per_km: Optional[condecimal(max_digits=12, decimal_places=3)] = None
-    surcharges: Optional[Dict[str, Any]] = None   # <-- dict
-    currency: Optional[str] = "EUR"
-
-class PricingUpdate(BaseModel):
-    unit: Optional[str] = None
-    base_price: Optional[condecimal(max_digits=12, decimal_places=2)] = None
-    min_qty: Optional[condecimal(max_digits=12, decimal_places=2)] = None
-    transport_flat_fee: Optional[condecimal(max_digits=12, decimal_places=2)] = None
-    transport_per_km: Optional[condecimal(max_digits=12, decimal_places=3)] = None
-    surcharges: Optional[Dict[str, Any]] = None   # <-- dict
-    currency: Optional[str] = None
-
-class PricingRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: UUID
+class PricingBase(BaseModel):
     owner_type: str
     owner_id: UUID
     unit: str
@@ -32,5 +10,23 @@ class PricingRead(BaseModel):
     min_qty: Optional[float] = None
     transport_flat_fee: Optional[float] = None
     transport_per_km: Optional[float] = None
-    surcharges: Optional[str] = None
-    currency: str
+    currency: Optional[str] = Field(default="EUR", max_length=3)
+    surcharges: Optional[Dict[str, Any]] = None  # JSONB column
+
+class PricingCreate(PricingBase):
+    pass
+
+class PricingUpdate(BaseModel):
+    unit: Optional[str] = None
+    base_price: Optional[float] = None
+    min_qty: Optional[float] = None
+    transport_flat_fee: Optional[float] = None
+    transport_per_km: Optional[float] = None
+    currency: Optional[str] = None
+    surcharges: Optional[Dict[str, Any]] = None
+
+class PricingOut(PricingBase):
+    id: UUID
+
+    class Config:
+        from_attributes = True
