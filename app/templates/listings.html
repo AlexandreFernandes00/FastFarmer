@@ -153,8 +153,13 @@ function fillMachineSelect(selectEl, selectedId){
   myMachines.forEach(m => {
     const opt = document.createElement("option");
     opt.value = m.id;
-    const label = [m.name, m.brand, m.model].filter(Boolean).join(" ") || m.id;
-    opt.textContent = label;
+
+    // Build label as: Brand – Model – Serial number
+    const label = [m.make, m.model, m.serial_no]
+      .filter(Boolean)
+      .join(" – ");
+
+    opt.textContent = label || m.id;
     if (selectedId && selectedId === m.id) opt.selected = true;
     selectEl.appendChild(opt);
   });
