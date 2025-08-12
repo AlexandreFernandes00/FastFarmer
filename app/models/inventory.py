@@ -36,6 +36,10 @@ class Machine(Base):
         CheckConstraint("status IN ('active','paused','retired')", name="machines_status_ck"),
     )
 
+class ListingType(str, enum.Enum):
+    equipment = "equipment"
+    service = "service"
+
 class Listing(Base):
     __tablename__ = "listings"
 
@@ -43,10 +47,7 @@ class Listing(Base):
                 default=uuid.uuid4, server_default=text("uuid_generate_v4()"))
 
     # map to existing PostgreSQL ENUM type 'listing_type'
-    type = Column(
-        PGEnum('machine', 'service', name='listing_type', create_type=False),
-        nullable=False
-    )
+    type = Column(PGEnum(ListingType, name="listing_type", create_type=False), nullable=False)
 
     ref_machine_id = Column(PGUUID(as_uuid=True), ForeignKey("machines.id", ondelete="CASCADE"), nullable=True)
     ref_service_id = Column(PGUUID(as_uuid=True), ForeignKey("services.id", ondelete="CASCADE"), nullable=True)
