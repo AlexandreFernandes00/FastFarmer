@@ -35,8 +35,12 @@
       <label style="grid-column: 1 / -1;">Description
         <textarea id="lf_description" rows="3" placeholder="Describe what’s included, ideal field conditions, etc."></textarea>
       </label>
+
+      <!-- Machine dropdown -->
       <label style="grid-column: 1 / -1;">Reference machine (optional)
-        <input id="lf_ref_machine_id" placeholder="Machine UUID (optional)"/>
+        <select id="lf_ref_machine_select">
+          <option value="">— Select machine (optional) —</option>
+        </select>
       </label>
     </div>
     <div class="result error" id="listingErr" hidden style="margin-top:.6rem;"></div>
@@ -47,7 +51,7 @@
   </form>
 </dialog>
 
-<!-- Pricing Editor Modal (unchanged from previous version) -->
+<!-- Pricing Editor Modal -->
 <dialog id="pricingDlg" class="card" style="max-width:720px; width:96%;">
   <form id="pricingForm" method="dialog" onsubmit="return false;" style="margin:0;">
     <h3 id="pricingDlgTitle">Add pricing</h3>
@@ -100,6 +104,7 @@
 <script>
 /* ================== Listings & Pricing (Provider) ================== */
 const API = "/api/v1";
+const MACHINES_API = "/api/v1/machines"; // adjust if your path differs
 let token = localStorage.getItem("token");
 function authHeaders(){ return token ? {"Authorization": "Bearer " + token} : {}; }
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -110,6 +115,7 @@ function showMsg(type, text){
 }
 
 let myListings = [];             // provider listings
+let myMachines = [];             // provider machines
 let pricingByListing = new Map();// listing_id -> [rules]
 let editingRule = null;          // {id,...} when editing, null when creating
 let editingListing = null;       // {id,...} when editing listing
@@ -120,10 +126,39 @@ let editingListing = null;       // {id,...} when editing listing
     document.getElementById("listingsGrid").innerHTML = `<div class="card"><p>Please <a href="/login">login</a>.</p></div>`;
     return;
   }
+  await loadMachines();
   await loadListings();
   await loadAllPricing();
   renderListings();
 })();
+
+/* ---------- Machines (provider-scoped) ---------- */
+async function loadMachines(){
+  try{
+    const url = new URL(`${location.origin}${MACHINES_API}`);
+    // If your endpoint needs a flag like ?mine=1, uncomment next line:
+    // url.searchParams.set("mine", "1");
+    const r = await fetch(url, { headers: authHeaders() });
+    let arr = r.ok ? await r.json() : [];
+    // sort A→Z by name (fallback to model if no name)
+    arr.sort((a,b)=> String(a.name||a.model||"").localeCompare(String(b.name||b.model||"")));
+    myMachines = arr;
+  }catch{
+    myMachines = [];
+  }
+}
+
+function fillMachineSelect(selectEl, selectedId){
+  selectEl.innerHTML = `<option value="">— Select machine (optional) —</option>`;
+  myMachines.forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    const label = [m.name, m.brand, m.model].filter(Boolean).join(" ") || m.id;
+    opt.textContent = label;
+    if (selectedId && selectedId === m.id) opt.selected = true;
+    selectEl.appendChild(opt);
+  });
+}
 
 /* ---------- Listings CRUD ---------- */
 async function loadListings(){
@@ -142,8 +177,9 @@ function L_openCreate(){
   document.getElementById("listingDlgTitle").textContent = "Add listing";
   document.getElementById("lf_title").value = "";
   document.getElementById("lf_description").value = "";
-  document.getElementById("lf_ref_machine_id").value = "";
   document.getElementById("lf_status").value = "active";
+  const sel = document.getElementById("lf_ref_machine_select");
+  fillMachineSelect(sel, null);
   document.getElementById("listingErr").hidden = true;
   document.getElementById("listingDlg").showModal();
 }
@@ -153,8 +189,9 @@ function L_openEdit(lst){
   document.getElementById("listingDlgTitle").textContent = "Edit listing";
   document.getElementById("lf_title").value = lst.title || "";
   document.getElementById("lf_description").value = lst.description || "";
-  document.getElementById("lf_ref_machine_id").value = lst.ref_machine_id || "";
   document.getElementById("lf_status").value = lst.status || "active";
+  const sel = document.getElementById("lf_ref_machine_select");
+  fillMachineSelect(sel, lst.ref_machine_id || null);
   document.getElementById("listingErr").hidden = true;
   document.getElementById("listingDlg").showModal();
 }
@@ -167,12 +204,12 @@ async function L_save(){
 
   const title = document.getElementById("lf_title").value.trim();
   const description = document.getElementById("lf_description").value.trim();
-  const ref_machine_id = document.getElementById("lf_ref_machine_id").value.trim() || null;
   const status = document.getElementById("lf_status").value;
+  const ref_machine_id = document.getElementById("lf_ref_machine_select").value || null;
 
   if (!title) { err.hidden = false; err.textContent = "Title is required."; return; }
 
-  const payload = { title, description, ref_machine_id, status };
+  const payload = { title, description, status, ref_machine_id };
 
   try{
     let r;
@@ -220,7 +257,7 @@ async function L_delete(id){
   }
 }
 
-/* ---------- Pricing (unchanged logic) ---------- */
+/* ---------- Pricing ---------- */
 async function loadAllPricing(){
   pricingByListing = new Map();
   for (const lst of myListings) {
@@ -273,13 +310,25 @@ function renderListings(){
   grid.innerHTML = myListings.map(lst => {
     const rules = pricingByListing.get(lst.id) || [];
     const rows = rules.length ? rules.map(r => PR_row(lst, r)).join("") : `<tr><td colspan="6" style="color:#64748b;">No pricing rules yet.</td></tr>`;
+
+    // Show the machine label if selected (best-effort match from myMachines)
+    let machineLabel = "—";
+    if (lst.ref_machine_id) {
+      const m = myMachines.find(mm => mm.id === lst.ref_machine_id);
+      if (m) machineLabel = [m.name, m.brand, m.model].filter(Boolean).join(" ") || m.id;
+      else machineLabel = lst.ref_machine_id;
+    }
+
     return `
       <div class="card" style="display:flex; flex-direction:column; gap:.6rem;">
         <div style="display:flex;justify-content:space-between;gap:.5rem;align-items:flex-start;">
           <div>
             <div style="font-weight:700;">${esc(lst.title)}</div>
             <div style="color:#556;">${esc(lst.description || "")}</div>
-            <div style="margin-top:.25rem;font-size:.9rem;color:#475569;">Status: <strong>${esc(lst.status || "active")}</strong></div>
+            <div style="margin-top:.25rem;font-size:.9rem;color:#475569;">
+              Status: <strong>${esc(lst.status || "active")}</strong>
+              &nbsp;·&nbsp; Machine: <strong>${esc(machineLabel)}</strong>
+            </div>
           </div>
           <div style="display:flex; gap:.4rem;">
             <button class="btn btn-outline" onclick='L_openEdit(${JSON.stringify(lst)})'>Edit</button>
@@ -314,7 +363,7 @@ function renderListings(){
   }).join("");
 }
 
-/* ---------------------- Pricing modal helpers (same as before) ---------------------- */
+/* ---------------------- Pricing modal helpers ---------------------- */
 function PR_fillListingOptions(selectedId){
   const sel = document.getElementById("pf_listing_id");
   sel.innerHTML = "";
@@ -410,7 +459,7 @@ async function PR_save(){
       const e = await r.json().catch(()=>({detail:"Save failed"}));
       throw new Error(e.detail || "Save failed");
     }
-    // Refresh pricing for affected listings (old & possibly new if listing moved)
+    // Refresh pricing for affected listings
     const affected = new Set();
     if (editingRule?.listing_id) affected.add(editingRule.listing_id);
     affected.add(listing_id);
@@ -439,13 +488,11 @@ async function PR_delete(id, listingId){
       headers: authHeaders()
     });
     if (!r.ok) throw new Error("Delete failed");
-    // refresh that listing's pricing
     const url = new URL(`${location.origin}${API}/pricing`);
     url.searchParams.set("listing_id", listingId);
     const pr = await fetch(url, { headers: authHeaders() });
-    const arr = pr.ok ? await r.json() : [];
+    const arr = pr.ok ? await pr.json() : [];
     pricingByListing.set(listingId, arr);
-    await loadAllPricing();
     renderListings();
     showMsg("ok", "Pricing deleted.");
   }catch(e){
