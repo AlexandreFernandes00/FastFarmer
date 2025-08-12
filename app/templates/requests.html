@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}My Requests · FastFarmer{% endblock %}
+{% block content %}
+
+<h2>My Requests</h2>
+<p style="color:#475569;margin-top:-.25rem;">Track the jobs you've requested.</p>
+
+<div id="msg" class="result" hidden></div>
+
+<div class="card" style="margin-top:.75rem;">
+  <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:.75rem;">
+    <label>Search
+      <input id="q" placeholder="Search by listing title or notes…" onkeydown="if(event.key==='Enter') render()" />
+    </label>
+    <label>Status
+      <select id="st" onchange="render()">
+        <option value="">All</option>
+        <option value="open">open</option>
+        <option value="quoted">quoted</option>
+        <option value="accepted">accepted</option>
+        <option value="in_progress">in_progress</option>
+        <option value="completed">completed</option>
+        <option value="cancelled">cancelled</option>
+      </select>
+    </label>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem; overflow:auto;">
+  <table style="width:100%; border-collapse:collapse;">
+    <thead>
+      <tr>
+        <th style="text-align:left; padding:.5rem; border-bottom:1px solid #e5e7eb;">Created</th>
+        <th style="text-align:left; padding:.5rem; border-bottom:1px solid #e5e7eb;">Listing</th>
+        <th style="text-align:left; padding:.5rem; border-bottom:1px solid #e5e7eb;">Desired</th>
+        <th style="text-align:left; padding:.5rem; border-bottom:1px solid #e5e7eb;">Field</th>
+        <th style="text-align:left; padding:.5rem; border-bottom:1px solid #e5e7eb;">Status</th>
+        <th style="text-align:left; padding:.5rem; border-bottom:1px solid #e5e7eb;">Notes</th>
+        <th style="text-align:right; padding:.5rem; border-bottom:1px solid #e5e7eb;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="rows">
+      <tr><td colspan="7" style="padding:.8rem;">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+const API = "/api/v1";
+let token = localStorage.getItem("token");
+function ah(){ return token ? {"Authorization":"Bearer "+token} : {}; }
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function msg(type,text){ const m=document.getElementById("msg"); m.className="result "+(type==="ok"?"ok":"error"); m.hidden=false; m.textContent=text; }
+
+let mine = [];           // raw requests
+let listingCache = {};   // id -> title
+let fieldCache = {};     // id -> name/area (optional)
+
+(async function boot(){
+  if (!token){ msg("error","Please log in to see your requests."); document.getElementById("rows").innerHTML = `<tr><td colspan="7" style="padding:.8rem;">Not logged in.</td></tr>`; return; }
+  await loadMine();
+  await hydrateListings();
+  render();
+})();
+
+async function loadMine(){
+  try{
+    const r = await fetch(`${API}/requests/mine`, { headers: ah() });
+    if (!r.ok) throw new Error("Failed to load your requests");
+    mine = await r.json();
+  }catch(e){
+    msg("error", e.message || "Could not load your requests.");
+    mine = [];
+  }
+}
+
+async function hydrateListings(){
+  const ids = [...new Set(mine.map(r => r.listing_id))].filter(Boolean);
+  await Promise.all(ids.map(async (id) => {
+    if (listingCache[id]) return;
+    try{
+      const r = await fetch(`${API}/listings/public/${id}?include_pricing=false`);
+      if (r.ok){ const x = await r.json(); listingCache[id] = x.title || id; }
+    }catch{}
+    listingCache[id] = listingCache[id] || id;
+  }));
+}
+
+function fmtDate(iso){
+  if (!iso) return "—";
+  try{
+    const d = new Date(iso);
+    return d.toLocaleString();
+  }catch{ return iso; }
+}
+
+function badge(st){
+  const map = { open:"#0369a1", quoted:"#6b21a8", accepted:"#166534", in_progress:"#92400e", completed:"#065f46", cancelled:"#991b1b" };
+  const color = map[st] || "#334155";
+  return `<span style="background:${color};color:white;padding:.2rem .45rem;border-radius:.5rem;font-size:.85rem;">${esc(st||"")}</span>`;
+}
+
+function row(r){
+  const title = listingCache[r.listing_id] || r.listing_id;
+  return `
+    <tr>
+      <td style="padding:.55rem;border-bottom:1px solid #eef;">${fmtDate(r.created_at || r.created || null)}</td>
+      <td style="padding:.55rem;border-bottom:1px solid #eef;">${esc(title)}</td>
+      <td style="padding:.55rem;border-bottom:1px solid #eef;">${fmtDate(r.desired_date)}</td>
+      <td style="padding:.55rem;border-bottom:1px solid #eef;">${esc(r.field_id)}</td>
+      <td style="padding:.55rem;border-bottom:1px solid #eef;">${badge(r.status)}</td>
+      <td style="padding:.55rem;border-bottom:1px solid #eef;max-width:320px;">${esc(r.notes||"")}</td>
+      <td style="padding:.55rem;border-bottom:1px solid #eef;text-align:right;">
+        <a class="btn btn-outline" href="/request?listing_id=${r.listing_id}">Re-request</a>
+      </td>
+    </tr>
+  `;
+}
+
+function render(){
+  let rows = mine.slice();
+
+  // Filter by status
+  const st = document.getElementById("st").value;
+  if (st) rows = rows.filter(r => r.status === st);
+
+  // Text filter
+  const q = (document.getElementById("q").value || "").toLowerCase().trim();
+  if (q){
+    rows = rows.filter(r => {
+      const title = (listingCache[r.listing_id]||"").toLowerCase();
+      const notes = (r.notes||"").toLowerCase();
+      return title.includes(q) || notes.includes(q);
+    });
+  }
+
+  // Sort by created desc (if present), else by id
+  rows.sort((a,b)=>{
+    const ad = a.created_at || a.created || "";
+    const bd = b.created_at || b.created || "";
+    return String(bd).localeCompare(String(ad));
+  });
+
+  document.getElementById("rows").innerHTML = rows.length
+    ? rows.map(row).join("")
+    : `<tr><td colspan="7" style="padding:.8rem;">No requests found.</td></tr>`;
+}
+</script>
+{% endblock %}

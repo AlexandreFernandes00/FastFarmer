@@ -41,6 +41,10 @@ def provider_inbox(request: Request):
 def marketplace_page(request: Request):
     return templates.TemplateResponse("marketplace.html", {"request": request})
 
-@router.get("/requests")
+@router.get("/request")
 def request_page(request: Request):
     return templates.TemplateResponse("request.html", {"request": request})
+
+@router.get("/requests")  # list my requests
+def my_requests_page(request: Request):
+    return templates.TemplateResponse("requests.html", {"request": request})
