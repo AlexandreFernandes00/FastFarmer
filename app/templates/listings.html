@@ -2,8 +2,13 @@
 {% block title %}Listings & Pricing · FastFarmer{% endblock %}
 {% block content %}
 
-<h2>My Listings & Pricing</h2>
-<p style="color:#475569;margin-top:-.2rem">Manage your listings and their pricing rules. Pricing is attached to a listing (no machine fallback).</p>
+<div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem;">
+  <div>
+    <h2 style="margin:0;">My Listings & Pricing</h2>
+    <p style="color:#475569;margin:.2rem 0 0 0">Manage your listings and their pricing rules. Pricing is attached to a listing.</p>
+  </div>
+  <button class="btn" onclick="L_openCreate()">Add listing</button>
+</div>
 
 <div id="msg" class="result" hidden></div>
 
@@ -12,7 +17,37 @@
   <div class="card"><p>Loading your listings…</p></div>
 </div>
 
-<!-- Pricing Editor Modal -->
+<!-- Listing Editor Modal -->
+<dialog id="listingDlg" class="card" style="max-width:720px; width:96%;">
+  <form id="listingForm" method="dialog" onsubmit="return false;" style="margin:0;">
+    <h3 id="listingDlgTitle">Add listing</h3>
+    <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap:.75rem; margin-top:.5rem;">
+      <label>Title
+        <input id="lf_title" required maxlength="200" placeholder="e.g., Plowing service with 200hp tractor"/>
+      </label>
+      <label>Status
+        <select id="lf_status">
+          <option value="active">active</option>
+          <option value="paused">paused</option>
+          <option value="retired">retired</option>
+        </select>
+      </label>
+      <label style="grid-column: 1 / -1;">Description
+        <textarea id="lf_description" rows="3" placeholder="Describe what’s included, ideal field conditions, etc."></textarea>
+      </label>
+      <label style="grid-column: 1 / -1;">Reference machine (optional)
+        <input id="lf_ref_machine_id" placeholder="Machine UUID (optional)"/>
+      </label>
+    </div>
+    <div class="result error" id="listingErr" hidden style="margin-top:.6rem;"></div>
+    <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.75rem;">
+      <button class="btn btn-outline" onclick="L_close()">Cancel</button>
+      <button class="btn" id="lf_saveBtn" onclick="L_save()">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Pricing Editor Modal (unchanged from previous version) -->
 <dialog id="pricingDlg" class="card" style="max-width:720px; width:96%;">
   <form id="pricingForm" method="dialog" onsubmit="return false;" style="margin:0;">
     <h3 id="pricingDlgTitle">Add pricing</h3>
@@ -25,7 +60,6 @@
       <label>Unit
         <select id="pf_unit" required>
           <option value="hour">hour</option>
-          <option value="day">day</option>
           <option value="hectare">hectare</option>
           <option value="km">km</option>
           <option value="job">job</option>
@@ -78,6 +112,7 @@ function showMsg(type, text){
 let myListings = [];             // provider listings
 let pricingByListing = new Map();// listing_id -> [rules]
 let editingRule = null;          // {id,...} when editing, null when creating
+let editingListing = null;       // {id,...} when editing listing
 
 (async function boot(){
   if (!token) {
@@ -90,6 +125,7 @@ let editingRule = null;          // {id,...} when editing, null when creating
   renderListings();
 })();
 
+/* ---------- Listings CRUD ---------- */
 async function loadListings(){
   try{
     const r = await fetch(`${API}/listings/`, { headers: authHeaders() });
@@ -101,9 +137,92 @@ async function loadListings(){
   }
 }
 
+function L_openCreate(){
+  editingListing = null;
+  document.getElementById("listingDlgTitle").textContent = "Add listing";
+  document.getElementById("lf_title").value = "";
+  document.getElementById("lf_description").value = "";
+  document.getElementById("lf_ref_machine_id").value = "";
+  document.getElementById("lf_status").value = "active";
+  document.getElementById("listingErr").hidden = true;
+  document.getElementById("listingDlg").showModal();
+}
+
+function L_openEdit(lst){
+  editingListing = lst;
+  document.getElementById("listingDlgTitle").textContent = "Edit listing";
+  document.getElementById("lf_title").value = lst.title || "";
+  document.getElementById("lf_description").value = lst.description || "";
+  document.getElementById("lf_ref_machine_id").value = lst.ref_machine_id || "";
+  document.getElementById("lf_status").value = lst.status || "active";
+  document.getElementById("listingErr").hidden = true;
+  document.getElementById("listingDlg").showModal();
+}
+
+function L_close(){ document.getElementById("listingDlg").close(); }
+
+async function L_save(){
+  const err = document.getElementById("listingErr");
+  err.hidden = true; err.textContent = "";
+
+  const title = document.getElementById("lf_title").value.trim();
+  const description = document.getElementById("lf_description").value.trim();
+  const ref_machine_id = document.getElementById("lf_ref_machine_id").value.trim() || null;
+  const status = document.getElementById("lf_status").value;
+
+  if (!title) { err.hidden = false; err.textContent = "Title is required."; return; }
+
+  const payload = { title, description, ref_machine_id, status };
+
+  try{
+    let r;
+    if (editingListing && editingListing.id) {
+      r = await fetch(`${API}/listings/${editingListing.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      r = await fetch(`${API}/listings/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload)
+      });
+    }
+    if (!r.ok) {
+      const e = await r.json().catch(()=>({detail:"Save failed"}));
+      throw new Error(e.detail || "Save failed");
+    }
+    await loadListings();
+    await loadAllPricing();
+    renderListings();
+    L_close();
+    showMsg("ok", "Listing saved.");
+  }catch(e){
+    err.hidden = false; err.textContent = e.message || "Could not save.";
+  }
+}
+
+async function L_delete(id){
+  if (!confirm("Delete this listing? This will also remove its pricing rules.")) return;
+  try{
+    const r = await fetch(`${API}/listings/${id}`, {
+      method: "DELETE",
+      headers: authHeaders()
+    });
+    if (!r.ok) throw new Error("Delete failed");
+    await loadListings();
+    await loadAllPricing();
+    renderListings();
+    showMsg("ok", "Listing deleted.");
+  }catch(e){
+    showMsg("error", e.message || "Could not delete.");
+  }
+}
+
+/* ---------- Pricing (unchanged logic) ---------- */
 async function loadAllPricing(){
   pricingByListing = new Map();
-  // fetch per listing to keep filters simple & enforce ownership on server
   for (const lst of myListings) {
     try {
       const url = new URL(`${location.origin}${API}/pricing`);
@@ -117,10 +236,37 @@ async function loadAllPricing(){
   }
 }
 
+function PR_row(lst, r){
+  const tparts = [];
+  if (r.transport_flat_fee != null) tparts.push(`flat ${r.transport_flat_fee}`);
+  if (r.transport_per_km != null) tparts.push(`${r.transport_per_km}/km`);
+  const transport = tparts.length ? tparts.join(" + ") : "—";
+  return `
+    <tr>
+      <td style="padding:.45rem .4rem;">${esc(r.unit)}</td>
+      <td style="padding:.45rem .4rem;">${esc(r.base_price)}</td>
+      <td style="padding:.45rem .4rem;">${r.min_qty != null ? esc(r.min_qty) : "—"}</td>
+      <td style="padding:.45rem .4rem;">${esc(transport)}</td>
+      <td style="padding:.45rem .4rem;">${esc(r.currency || "EUR")}</td>
+      <td style="padding:.45rem .4rem; text-align:right;">
+        <button class="btn btn-outline" onclick='PR_openEdit(${JSON.stringify(lst)}, ${JSON.stringify(r)})'>Edit</button>
+        <button class="btn btn-outline" onclick='PR_delete("${r.id}", "${lst.id}")' style="margin-left:.4rem;">Delete</button>
+      </td>
+    </tr>
+  `;
+}
+
 function renderListings(){
   const grid = document.getElementById("listingsGrid");
   if (!myListings.length) {
-    grid.innerHTML = `<div class="card"><p>No listings yet. Create one first.</p></div>`;
+    grid.innerHTML = `
+      <div class="card" style="display:flex;gap:.6rem;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-weight:600;">No listings yet</div>
+          <div style="color:#64748b;">Create your first listing to start adding pricing.</div>
+        </div>
+        <button class="btn" onclick="L_openCreate()">Add listing</button>
+      </div>`;
     return;
   }
 
@@ -129,12 +275,19 @@ function renderListings(){
     const rows = rules.length ? rules.map(r => PR_row(lst, r)).join("") : `<tr><td colspan="6" style="color:#64748b;">No pricing rules yet.</td></tr>`;
     return `
       <div class="card" style="display:flex; flex-direction:column; gap:.6rem;">
-        <div>
-          <div style="font-weight:700;">${esc(lst.title)}</div>
-          <div style="color:#556;">${esc(lst.description || "")}</div>
+        <div style="display:flex;justify-content:space-between;gap:.5rem;align-items:flex-start;">
+          <div>
+            <div style="font-weight:700;">${esc(lst.title)}</div>
+            <div style="color:#556;">${esc(lst.description || "")}</div>
+            <div style="margin-top:.25rem;font-size:.9rem;color:#475569;">Status: <strong>${esc(lst.status || "active")}</strong></div>
+          </div>
+          <div style="display:flex; gap:.4rem;">
+            <button class="btn btn-outline" onclick='L_openEdit(${JSON.stringify(lst)})'>Edit</button>
+            <button class="btn btn-outline" onclick='L_delete("${lst.id}")'>Delete</button>
+          </div>
         </div>
 
-        <div class="grid" style="grid-template-columns: 1fr auto; align-items:center;">
+        <div class="grid" style="grid-template-columns: 1fr auto; align-items:center; margin-top:.25rem;">
           <div style="font-weight:600; color:#334155;">Pricing rules</div>
           <button class="btn" onclick='PR_openCreate(${JSON.stringify(lst)})'>Add pricing</button>
         </div>
@@ -161,27 +314,7 @@ function renderListings(){
   }).join("");
 }
 
-function PR_row(lst, r){
-  const tparts = [];
-  if (r.transport_flat_fee != null) tparts.push(`flat ${r.transport_flat_fee}`);
-  if (r.transport_per_km != null) tparts.push(`${r.transport_per_km}/km`);
-  const transport = tparts.length ? tparts.join(" + ") : "—";
-  return `
-    <tr>
-      <td style="padding:.45rem .4rem;">${esc(r.unit)}</td>
-      <td style="padding:.45rem .4rem;">${esc(r.base_price)}</td>
-      <td style="padding:.45rem .4rem;">${r.min_qty != null ? esc(r.min_qty) : "—"}</td>
-      <td style="padding:.45rem .4rem;">${esc(transport)}</td>
-      <td style="padding:.45rem .4rem;">${esc(r.currency || "EUR")}</td>
-      <td style="padding:.45rem .4rem; text-align:right;">
-        <button class="btn btn-outline" onclick='PR_openEdit(${JSON.stringify(lst)}, ${JSON.stringify(r)})'>Edit</button>
-        <button class="btn btn-outline" onclick='PR_delete("${r.id}", "${lst.id}")' style="margin-left:.4rem;">Delete</button>
-      </td>
-    </tr>
-  `;
-}
-
-/* ---------------------- Modal logic ---------------------- */
+/* ---------------------- Pricing modal helpers (same as before) ---------------------- */
 function PR_fillListingOptions(selectedId){
   const sel = document.getElementById("pf_listing_id");
   sel.innerHTML = "";
@@ -211,7 +344,7 @@ function PR_openCreate(listing){
 }
 
 function PR_openEdit(listing, rule){
-  editingRule = rule; // has id
+  editingRule = rule;
   document.getElementById("pricingDlgTitle").textContent = "Edit pricing";
   document.getElementById("pricingDlgSub").textContent = listing ? listing.title : "";
   PR_fillListingOptions(rule.listing_id || listing?.id);
@@ -261,7 +394,6 @@ async function PR_save(){
   try{
     let r;
     if (editingRule && editingRule.id) {
-      // Full replace (PUT) so all fields are saved
       r = await fetch(`${API}/pricing/${editingRule.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -311,8 +443,9 @@ async function PR_delete(id, listingId){
     const url = new URL(`${location.origin}${API}/pricing`);
     url.searchParams.set("listing_id", listingId);
     const pr = await fetch(url, { headers: authHeaders() });
-    const arr = pr.ok ? await pr.json() : [];
+    const arr = pr.ok ? await r.json() : [];
     pricingByListing.set(listingId, arr);
+    await loadAllPricing();
     renderListings();
     showMsg("ok", "Pricing deleted.");
   }catch(e){
