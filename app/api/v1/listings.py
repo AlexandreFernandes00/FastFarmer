@@ -6,31 +6,74 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from ...database import get_db
 from ...dependencies.auth import require_provider
 from ...models.user import User
 from ...models.profile import ProviderProfile
-from ...models.inventory import Listing, PricingRule  # <-- PricingRule has listing_id FK
+from ...models.inventory import Listing, PricingRule  # PricingRule has listing_id FK
 
 router = APIRouter()
 
+# ----------------------- Validation helpers -----------------------
+LISTING_TYPES = {"equipment", "service"}
+STATUS_TYPES = {"active", "paused", "retired"}
 
-# ----------------------- Pydantic payloads (CRUD) -----------------------
+# ----------------------- Pydantic payloads (CRUD) -----------------
 class ListingCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = None
     ref_machine_id: Optional[UUID] = None
-    status: Optional[str] = None  # e.g. active|paused|retired
+    ref_service_id: Optional[UUID] = None  # reserved for later
+    status: Optional[str] = Field(default="active")
+    type: Optional[str] = None  # "equipment" | "service"
+
+    @field_validator("type")
+    @classmethod
+    def _valid_type(cls, v):
+        if v is None:
+            return v
+        if v not in LISTING_TYPES:
+            raise ValueError(f"type must be one of {sorted(LISTING_TYPES)}")
+        return v
+
+    @field_validator("status")
+    @classmethod
+    def _valid_status(cls, v):
+        if v is None:
+            return "active"
+        if v not in STATUS_TYPES:
+            raise ValueError(f"status must be one of {sorted(STATUS_TYPES)}")
+        return v
 
 
 class ListingUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = None
     ref_machine_id: Optional[UUID] = None
+    ref_service_id: Optional[UUID] = None
     status: Optional[str] = None
+    type: Optional[str] = None
+
+    @field_validator("type")
+    @classmethod
+    def _valid_type(cls, v):
+        if v is None:
+            return v
+        if v not in LISTING_TYPES:
+            raise ValueError(f"type must be one of {sorted(LISTING_TYPES)}")
+        return v
+
+    @field_validator("status")
+    @classmethod
+    def _valid_status(cls, v):
+        if v is None:
+            return v
+        if v not in STATUS_TYPES:
+            raise ValueError(f"status must be one of {sorted(STATUS_TYPES)}")
+        return v
 
 
 # ---------------------------- Helpers -----------------------------------
@@ -47,7 +90,9 @@ def shape_listing_base(l: Listing) -> Dict[str, Any]:
         "title": l.title or "",
         "description": l.description or "",
         "status": (l.status or "active"),
+        "type": (l.type or "equipment"),
         "ref_machine_id": str(l.ref_machine_id) if getattr(l, "ref_machine_id", None) else None,
+        "ref_service_id": str(l.ref_service_id) if getattr(l, "ref_service_id", None) else None,
         "created_at": getattr(l, "created_at", None),
         "updated_at": getattr(l, "updated_at", None),
     }
@@ -57,7 +102,7 @@ def shape_price(p: PricingRule) -> Dict[str, Any]:
     return {
         "id": str(p.id),
         "listing_id": str(p.listing_id),
-        "unit": p.unit,                              # "hour" | "hectare" | "km" | "job"
+        "unit": p.unit,
         "base_price": float(p.base_price) if p.base_price is not None else None,
         "min_qty": p.min_qty,
         "transport_flat_fee": p.transport_flat_fee,
@@ -70,7 +115,6 @@ def shape_price(p: PricingRule) -> Dict[str, Any]:
 def prices_summary_text(prices: List[Dict[str, Any]]) -> str:
     if not prices:
         return "Ask for a quote"
-    # stable order by unit then price
     parts: List[str] = []
     for p in sorted(prices, key=lambda x: (x.get("unit") or "", x.get("base_price") or 0))[:3]:
         bp = p.get("base_price")
@@ -105,7 +149,6 @@ def public_listings(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> List[Dict[str, Any]]:
-    # Show active or NULL status
     order_col = getattr(Listing, "created_at", Listing.id)
     stmt = sa.select(Listing).where(
         sa.or_(Listing.status == "active", Listing.status.is_(None))
@@ -127,8 +170,6 @@ def public_listings(
         return shaped
 
     listing_ids = [r.id for r in rows]
-
-    # Query listing-level pricing only (Option A)
     by_listing: Dict[UUID, List[Dict[str, Any]]] = {}
     if listing_ids:
         rules = (
@@ -139,7 +180,6 @@ def public_listings(
         for p in rules:
             by_listing.setdefault(p.listing_id, []).append(shape_price(p))
 
-    # Attach pricing
     for item in shaped:
         lid = UUID(item["id"])
         prices = by_listing.get(lid, [])
@@ -196,12 +236,22 @@ def create_listing(
     current: User = Depends(require_provider),
 ) -> Dict[str, Any]:
     prof = get_provider_profile(db, current.id)
+
+    # Infer type if not provided
+    inferred_type = payload.type
+    if inferred_type is None:
+        inferred_type = "equipment" if payload.ref_machine_id else "service"
+    if inferred_type not in LISTING_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid listing type")
+
     l = Listing(
         provider_id=prof.id,
         title=payload.title,
         description=payload.description,
         ref_machine_id=payload.ref_machine_id,
+        ref_service_id=payload.ref_service_id,
         status=payload.status or "active",
+        type=inferred_type,  # NOT NULL in DB
     )
     db.add(l)
     db.commit()
@@ -242,8 +292,17 @@ def update_listing(
     if not l:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # If type is not provided but ref_machine_id changes, we won't auto-infer here;
+    # clients can explicitly set "type" if they want to flip service<->equipment.
+    for k, v in data.items():
         setattr(l, k, v)
+
+    # Ensure type is always valid / present
+    if not getattr(l, "type", None):
+        l.type = "equipment" if getattr(l, "ref_machine_id", None) else "service"
+    if l.type not in LISTING_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid listing type")
 
     db.add(l)
     db.commit()

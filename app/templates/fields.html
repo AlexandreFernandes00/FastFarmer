@@ -1,282 +1,529 @@
 {% extends "base.html" %}
+{% block title %}Listings & Pricing · FastFarmer{% endblock %}
 {% block content %}
-<h2>My Fields</h2>
 
-<!-- Gate for unauthenticated / non-client users -->
-<div id="gate" class="card" hidden>
-  <p>You must be logged in as a <strong>client</strong> to manage fields.</p>
-  <p><a class="btn" href="/login">Login</a></p>
+<div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem;">
+  <div>
+    <h2 style="margin:0;">My Listings & Pricing</h2>
+    <p style="color:#475569;margin:.2rem 0 0 0">Manage your listings and their pricing rules. Pricing is attached to a listing.</p>
+  </div>
+  <button class="btn" onclick="L_openCreate()">Add listing</button>
 </div>
-
-<!-- Main content -->
-<section id="content" hidden>
-  <div class="card">
-    <h3>Add a field</h3>
-    <div class="form">
-      <label>Field name
-        <input id="fieldName" placeholder="e.g., North 40" />
-      </label>
-    </div>
-
-    <div id="map" style="height:440px; margin:.5rem 0; border-radius:12px; overflow:hidden;"></div>
-
-    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
-      <p style="margin:0"><strong>Area:</strong> <span id="area">0</span> ha</p>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
-        <button class="btn" type="button" onclick="finishPolygon()">Finish polygon</button>
-        <button class="btn btn-outline" type="button" onclick="undoPoint()">Undo last point</button>
-        <button class="btn btn-outline" type="button" onclick="clearShape()">Clear</button>
-        <button class="btn" type="button" onclick="saveField()">Save field</button>
-      </div>
-    </div>
-
-    <p style="margin-top:.5rem;color:#555;">
-      Tip: click to add vertices; click the <em>first point</em> or press <em>Finish polygon</em> to close.  
-      Double-click also finishes on desktop.
-    </p>
-  </div>
-
-  <div class="card" style="margin-top:1rem;">
-    <h3>Your fields</h3>
-    <div id="list">Loading…</div>
-  </div>
-
-  <div class="card" style="margin-top:1rem;">
-    <h3>Request work for a field</h3>
-    <form id="reqForm" class="form" onsubmit="return createRequest(event)">
-      <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:.75rem;">
-        <label>Field
-          <select id="req_field" required></select>
-        </label>
-        <label>Listing (optional)
-          <input id="req_listing" placeholder="Paste listing UUID (MVP)" />
-        </label>
-        <label>Desired date/time
-          <input id="req_date" type="datetime-local" />
-        </label>
-        <label>Time window
-          <select id="req_window">
-            <option value="">—</option>
-            <option>morning</option>
-            <option>afternoon</option>
-            <option>evening</option>
-            <option>flexible</option>
-          </select>
-        </label>
-      </div>
-      <label>Notes
-        <textarea id="req_notes" rows="2" placeholder="Anything providers should know…"></textarea>
-      </label>
-      <button class="btn" type="submit">Submit request</button>
-    </form>
-  </div>
-</section>
 
 <div id="msg" class="result" hidden></div>
 
-<!-- Leaflet & Turf -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<!-- Listings grid -->
+<div id="listingsGrid" class="grid" style="grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); gap:1rem; margin-top:1rem;">
+  <div class="card"><p>Loading your listings…</p></div>
+</div>
 
-<script>
-const API = "/api/v1";
-let token = localStorage.getItem("token");
+<!-- Listing Editor Modal -->
+<dialog id="listingDlg" class="card" style="max-width:720px; width:96%;">
+  <form id="listingForm" method="dialog" onsubmit="return false;" style="margin:0;">
+    <h3 id="listingDlgTitle">Add listing</h3>
+    <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap:.75rem; margin-top:.5rem;">
+      <label>Title
+        <input id="lf_title" required maxlength="200" placeholder="e.g., Plowing service with 200hp tractor"/>
+      </label>
 
-// map/draw state
-let map, finalLayer, previewLayer, firstMarker;
-let drawPoints = [];   // [[lon,lat], ...]
-let drawn = null;      // GeoJSON Feature (Polygon)
+      <label>Status
+        <select id="lf_status">
+          <option value="active">active</option>
+          <option value="paused">paused</option>
+          <option value="retired">retired</option>
+        </select>
+      </label>
 
-function authHeaders(){ return token ? {"Authorization":"Bearer "+token} : {}; }
-function show(el, yes=true){ el.hidden = !yes; }
-function msgOk(t){ const m=document.getElementById("msg"); m.className="result ok"; m.hidden=false; m.textContent=t; }
-function msgErr(t){ const m=document.getElementById("msg"); m.className="result error"; m.hidden=false; m.textContent=t; }
+      <label>Listing type
+        <select id="lf_type">
+          <option value="equipment">equipment</option>
+          <option value="service">service</option>
+        </select>
+      </label>
 
-(async function init(){
-  if(!token){ show(document.getElementById("gate"), true); return; }
-  const me = await fetch(`${API}/auth/me`, { headers: authHeaders() }).then(r=>r.ok?r.json():null);
-  if(!me || !me.is_client){ show(document.getElementById("gate"), true); return; }
+      <label style="grid-column: 1 / -1;">Description
+        <textarea id="lf_description" rows="3" placeholder="Describe what’s included, ideal field conditions, etc."></textarea>
+      </label>
 
-  show(document.getElementById("content"), true);
-  initMap();
-  await loadFields();
-})();
+      <!-- Machine dropdown -->
+      <label style="grid-column: 1 / -1;">Reference machine (optional)
+        <select id="lf_ref_machine_select">
+          <option value="">— Select machine (optional) —</option>
+        </select>
+        <div style="font-size:.85rem;color:#64748b;margin-top:.25rem;">
+          Shown as <em>Brand – Model – Serial</em>. Only your machines are listed.
+        </div>
+      </label>
+    </div>
+    <div class="result error" id="listingErr" hidden style="margin-top:.6rem;"></div>
+    <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.75rem;">
+      <button class="btn btn-outline" onclick="L_close()">Cancel</button>
+      <button class="btn" id="lf_saveBtn" onclick="L_save()">Save</button>
+    </div>
+  </form>
+</dialog>
 
-function initMap(){
-  map = L.map('map', { zoomControl: true }).setView([40.0, -8.0], 7); // default view (PT-ish)
-  map.doubleClickZoom.disable(); // so dbl-click reaches our handler
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; OSM'}).addTo(map);
+<!-- Pricing Editor Modal -->
+<dialog id="pricingDlg" class="card" style="max-width:720px; width:96%;">
+  <form id="pricingForm" method="dialog" onsubmit="return false;" style="margin:0;">
+    <h3 id="pricingDlgTitle">Add pricing</h3>
+    <p id="pricingDlgSub" style="margin-top:-.25rem; color:#555;"></p>
 
-  finalLayer = L.geoJSON(null).addTo(map);      // finalized polygon
-  previewLayer = L.layerGroup().addTo(map);     // points & preview line
+    <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap:.75rem; margin-top:.5rem;">
+      <label>Listing
+        <select id="pf_listing_id" required></select>
+      </label>
+      <label>Unit
+        <select id="pf_unit" required>
+          <option value="hour">hour</option>
+          <option value="day">day</option>
+          <option value="hectare">hectare</option>
+          <option value="km">km</option>
+          <option value="job">job</option>
+        </select>
+      </label>
+      <label>Base price
+        <input id="pf_base_price" type="number" step="0.01" min="0" placeholder="e.g. 120" required/>
+      </label>
+      <label>Min qty
+        <input id="pf_min_qty" type="number" step="0.01" min="0" placeholder="optional"/>
+      </label>
+      <label>Transport flat fee
+        <input id="pf_transport_flat_fee" type="number" step="0.01" min="0" placeholder="optional"/>
+      </label>
+      <label>Transport per km
+        <input id="pf_transport_per_km" type="number" step="0.01" min="0" placeholder="optional"/>
+      </label>
+      <label>Currency
+        <input id="pf_currency" maxlength="3" placeholder="EUR" />
+      </label>
+      <label style="grid-column: 1 / -1;">Surcharges (JSON)
+        <textarea id="pf_surcharges" rows="3" placeholder='e.g. {"night":1.2,"weekend":1.15}'></textarea>
+      </label>
+    </div>
 
-  // click to add points; click near first point to finish
-  map.on('click', (e) => {
-    if (drawn) return; // polygon already closed
-    if (drawPoints.length) {
-      const firstLL = L.latLng(drawPoints[0][1], drawPoints[0][0]);
-      const dist = map.distance(e.latlng, firstLL);
-      if (dist < 12) { finishPolygon(); return; } // within ~12m → close
-    }
-    addPoint(e.latlng);
-  });
+    <div class="result error" id="pricingErr" hidden style="margin-top:.6rem;"></div>
 
-  // desktop: double-click to finish
-  map.on('dblclick', () => { if (!drawn && drawPoints.length >= 3) finishPolygon(); });
-}
+    <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.75rem;">
+      <button class="btn btn-outline" onclick="PR_close()">Cancel</button>
+      <button class="btn" id="pf_saveBtn" onclick="PR_save()">Save</button>
+    </div>
+  </form>
+</dialog>
 
-function addPoint(latlng){
-  drawPoints.push([latlng.lng, latlng.lat]); // store [lon,lat]
-  renderPreview();
-}
-
-function renderPreview(){
-  previewLayer.clearLayers();
-
-  // First point marker (click to finish)
-  if (drawPoints.length > 0) {
-    const firstLL = L.latLng(drawPoints[0][1], drawPoints[0][0]);
-    firstMarker = L.circleMarker(firstLL, { radius: 6 }).addTo(previewLayer);
-    firstMarker.bindTooltip("Click here to finish", {direction: "top"});
-    firstMarker.on('click', finishPolygon);
-  }
-
-  // Polyline connecting added points
-  if (drawPoints.length >= 2) {
-    const latlngs = drawPoints.map(p => [p[1], p[0]]);
-    L.polyline(latlngs).addTo(previewLayer);
-  }
-}
-
-function undoPoint(){
-  if (drawPoints.length === 0) return;
-  drawPoints.pop();
-  if (drawPoints.length === 0 && firstMarker) { previewLayer.removeLayer(firstMarker); firstMarker = null; }
-  renderPreview();
-}
-
-function finishPolygon(){
-  if (drawPoints.length < 3) { msgErr("Need at least 3 points to make a polygon."); return; }
-  const ring = [...drawPoints, drawPoints[0]];
-  drawn = {
-    type: "Feature",
-    geometry: { type: "Polygon", coordinates: [ring] },
-    properties: {}
-  };
-
-  finalLayer.clearLayers();
-  previewLayer.clearLayers();
-  if (firstMarker) { previewLayer.removeLayer(firstMarker); firstMarker = null; }
-  L.geoJSON(drawn).addTo(finalLayer);
-
-  // compute area (ha) & centroid
-  try {
-    const area_m2 = turf.area(drawn);
-    const ha = area_m2 / 10000;
-    document.getElementById("area").textContent = ha.toFixed(4);
-    drawn.properties.centroid = turf.centroid(drawn).geometry;
-  } catch { /* turf load issues? ignore gracefully */ }
-}
-
-function clearShape(){
-  drawPoints = [];
-  drawn = null;
-  finalLayer.clearLayers();
-  previewLayer.clearLayers();
-  if (firstMarker) { previewLayer.removeLayer(firstMarker); firstMarker = null; }
-  document.getElementById("area").textContent = "0";
-}
-
-async function saveField(){
-  const name = document.getElementById("fieldName").value.trim();
-  if(!name){ msgErr("Please enter a field name."); return; }
-  if(!drawn){ msgErr("Finish the polygon first."); return; }
-
-  const area_ha = Number(document.getElementById("area").textContent);
-  const centroid = drawn?.properties?.centroid || null;
-
-  const r = await fetch(`${API}/fields/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ name, geojson: drawn, area_ha, centroid })
-  });
-  if(!r.ok){ const e = await safeJson(r); msgErr(e?.detail || "Save failed"); return; }
-  msgOk("Field saved.");
-  clearShape();
-  document.getElementById("fieldName").value = "";
-  await loadFields();
-}
-
-async function loadFields(){
-  const list = document.getElementById("list");
-  const sel = document.getElementById("req_field");
-  list.textContent = "Loading…";
-  sel.innerHTML = "";
-
-  const r = await fetch(`${API}/fields/`, { headers: authHeaders() });
-  if(!r.ok){ list.textContent = "Failed to load fields."; return; }
-  const items = await r.json();
-
-  // dropdown for requests
-  items.forEach(f => {
-    const opt = document.createElement("option");
-    opt.value = f.id; opt.textContent = `${f.name} (${Number(f.area_ha).toFixed(2)} ha)`;
-    sel.appendChild(opt);
-  });
-
-  if(!items.length){ list.innerHTML = "<p>No fields yet.</p>"; return; }
-
-  const ul = document.createElement("ul");
-  ul.style.margin = 0; ul.style.paddingLeft = "1.2rem";
-  items.forEach(f => {
-    const li = document.createElement("li");
-    li.innerHTML = `<strong>${esc(f.name)}</strong> — ${Number(f.area_ha).toFixed(2)} ha
-      <button class="btn btn-outline" style="margin-left:.5rem" onclick='deleteField("${f.id}")'>Delete</button>`;
-    ul.appendChild(li);
-  });
-  list.innerHTML = "";
-  list.appendChild(ul);
-}
-
-async function deleteField(id){
-  if(!confirm("Delete this field?")) return;
-  const r = await fetch(`${API}/fields/${id}`, { method: "DELETE", headers: authHeaders() });
-  if(r.status !== 204){ const e = await safeJson(r); msgErr(e?.detail || "Delete failed"); return; }
-  msgOk("Field deleted.");
-  await loadFields();
-}
-
-async function createRequest(e){
-  e.preventDefault();
-  const field_id = document.getElementById("req_field").value;
-  const listing = document.getElementById("req_listing").value.trim();
-  const desired = document.getElementById("req_date").value; // ISO from datetime-local
-  const window = document.getElementById("req_window").value;
-  const notes = document.getElementById("req_notes").value.trim() || null;
-
-  const payload = {
-    field_id,
-    listing_id: listing || null,
-    desired_date: desired || null,
-    time_window: window || null,
-    notes
-  };
-
-  const r = await fetch(`${API}/requests/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(payload)
-  });
-  if(!r.ok){ const e = await safeJson(r); msgErr(e?.detail || "Request failed"); return false; }
-  msgOk("Request submitted. Providers can now quote.");
-  e.target.reset();
-  return false;
-}
-
-function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-async function safeJson(r){ try{ return await r.json(); }catch{ return null; } }
-</script>
 {% endblock %}
 
+{% block page_scripts %}
+<script>
+/* ================== Listings & Pricing (Provider) ================== */
+const API = "/api/v1";
+const MACHINES_API = "/api/v1/machines"; // adjust if different
+let token = localStorage.getItem("token");
+function authHeaders(){ return token ? {"Authorization": "Bearer " + token} : {}; }
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function showMsg(type, text){
+  const m = document.getElementById("msg");
+  m.className = "result " + (type === "ok" ? "ok" : "error");
+  m.hidden = false; m.textContent = text;
+}
 
+let myListings = [];             // provider listings
+let myMachines = [];             // provider machines
+let pricingByListing = new Map();// listing_id -> [rules]
+let editingRule = null;          // {id,...} when editing, null when creating
+let editingListing = null;       // {id,...} when editing listing
+
+(async function boot(){
+  if (!token) {
+    showMsg("error", "You must be logged in as a provider to manage listings.");
+    document.getElementById("listingsGrid").innerHTML = `<div class="card"><p>Please <a href="/login">login</a>.</p></div>`;
+    return;
+  }
+  await loadMachines();
+  await loadListings();
+  await loadAllPricing();
+  renderListings();
+})();
+
+/* ---------- Machines (provider-scoped) ---------- */
+async function loadMachines(){
+  try{
+    const url = new URL(`${location.origin}${MACHINES_API}`);
+    // If your endpoint needs a flag like ?mine=1, uncomment the next line:
+    // url.searchParams.set("mine", "1");
+    const r = await fetch(url, { headers: authHeaders() });
+    let arr = r.ok ? await r.json() : [];
+    // sort A→Z by name/brand/model
+    arr.sort((a,b)=> String(a.name||a.brand||a.model||"").localeCompare(String(b.name||b.brand||b.model||"")));
+    myMachines = arr;
+  }catch{
+    myMachines = [];
+  }
+}
+
+function machineLabel(m){
+  return [m.brand, m.model, m.serial_number].filter(Boolean).join(" – ") || m.id;
+}
+
+function fillMachineSelect(selectEl, selectedId){
+  selectEl.innerHTML = `<option value="">— Select machine (optional) —</option>`;
+  myMachines.forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    opt.textContent = machineLabel(m);
+    if (selectedId && selectedId === m.id) opt.selected = true;
+    selectEl.appendChild(opt);
+  });
+}
+
+/* ---------- Listings CRUD ---------- */
+async function loadListings(){
+  try{
+    const r = await fetch(`${API}/listings/`, { headers: authHeaders() });
+    if (!r.ok) throw new Error("Failed to load listings");
+    myListings = await r.json();
+  }catch(e){
+    showMsg("error", e.message || "Could not load listings.");
+    myListings = [];
+  }
+}
+
+function L_openCreate(){
+  editingListing = null;
+  document.getElementById("listingDlgTitle").textContent = "Add listing";
+  document.getElementById("lf_title").value = "";
+  document.getElementById("lf_description").value = "";
+  document.getElementById("lf_status").value = "active";
+  document.getElementById("lf_type").value = "equipment";
+  const sel = document.getElementById("lf_ref_machine_select");
+  fillMachineSelect(sel, null);
+  document.getElementById("listingErr").hidden = true;
+  document.getElementById("listingDlg").showModal();
+}
+
+function L_openEdit(lst){
+  editingListing = lst;
+  document.getElementById("listingDlgTitle").textContent = "Edit listing";
+  document.getElementById("lf_title").value = lst.title || "";
+  document.getElementById("lf_description").value = lst.description || "";
+  document.getElementById("lf_status").value = lst.status || "active";
+  document.getElementById("lf_type").value = lst.type || "equipment";
+  const sel = document.getElementById("lf_ref_machine_select");
+  fillMachineSelect(sel, lst.ref_machine_id || null);
+  document.getElementById("listingErr").hidden = true;
+  document.getElementById("listingDlg").showModal();
+}
+
+function L_close(){ document.getElementById("listingDlg").close(); }
+
+async function L_save(){
+  const err = document.getElementById("listingErr");
+  err.hidden = true; err.textContent = "";
+
+  const title = document.getElementById("lf_title").value.trim();
+  const description = document.getElementById("lf_description").value.trim();
+  const status = document.getElementById("lf_status").value;
+  const selectedType = document.getElementById("lf_type").value;
+  const ref_machine_id = document.getElementById("lf_ref_machine_select").value || null;
+
+  if (!title) { err.hidden = false; err.textContent = "Title is required."; return; }
+
+  // If a machine is selected, force equipment; else keep the user's choice
+  const type = ref_machine_id ? "equipment" : (selectedType || "service");
+
+  const payload = { title, description, status, ref_machine_id, type };
+
+  try{
+    let r;
+    if (editingListing && editingListing.id) {
+      r = await fetch(`${API}/listings/${editingListing.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      r = await fetch(`${API}/listings/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload)
+      });
+    }
+    if (!r.ok) {
+      const e = await r.json().catch(()=>({detail:"Save failed"}));
+      throw new Error(e.detail || "Save failed");
+    }
+    await loadListings();
+    await loadAllPricing();
+    renderListings();
+    L_close();
+    showMsg("ok", "Listing saved.");
+  }catch(e){
+    err.hidden = false; err.textContent = e.message || "Could not save.";
+  }
+}
+
+async function L_delete(id){
+  if (!confirm("Delete this listing? This will also remove its pricing rules.")) return;
+  try{
+    const r = await fetch(`${API}/listings/${id}`, {
+      method: "DELETE",
+      headers: authHeaders()
+    });
+    if (!r.ok) throw new Error("Delete failed");
+    await loadListings();
+    await loadAllPricing();
+    renderListings();
+    showMsg("ok", "Listing deleted.");
+  }catch(e){
+    showMsg("error", e.message || "Could not delete.");
+  }
+}
+
+/* ---------- Pricing ---------- */
+async function loadAllPricing(){
+  pricingByListing = new Map();
+  for (const lst of myListings) {
+    try {
+      const url = new URL(`${location.origin}${API}/pricing`);
+      url.searchParams.set("listing_id", lst.id);
+      const r = await fetch(url, { headers: authHeaders() });
+      const arr = r.ok ? await r.json() : [];
+      pricingByListing.set(lst.id, arr);
+    } catch {
+      pricingByListing.set(lst.id, []);
+    }
+  }
+}
+
+function PR_row(lst, r){
+  const tparts = [];
+  if (r.transport_flat_fee != null) tparts.push(`flat ${r.transport_flat_fee}`);
+  if (r.transport_per_km != null) tparts.push(`${r.transport_per_km}/km`);
+  const transport = tparts.length ? tparts.join(" + ") : "—";
+  return `
+    <tr>
+      <td style="padding:.45rem .4rem;">${esc(r.unit)}</td>
+      <td style="padding:.45rem .4rem;">${esc(r.base_price)}</td>
+      <td style="padding:.45rem .4rem;">${r.min_qty != null ? esc(r.min_qty) : "—"}</td>
+      <td style="padding:.45rem .4rem;">${esc(transport)}</td>
+      <td style="padding:.45rem .4rem;">${esc(r.currency || "EUR")}</td>
+      <td style="padding:.45rem .4rem; text-align:right;">
+        <button class="btn btn-outline" onclick='PR_openEdit(${JSON.stringify(lst)}, ${JSON.stringify(r)})'>Edit</button>
+        <button class="btn btn-outline" onclick='PR_delete("${r.id}", "${lst.id}")' style="margin-left:.4rem;">Delete</button>
+      </td>
+    </tr>
+  `;
+}
+
+function renderListings(){
+  const grid = document.getElementById("listingsGrid");
+  if (!myListings.length) {
+    grid.innerHTML = `
+      <div class="card" style="display:flex;gap:.6rem;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-weight:600;">No listings yet</div>
+          <div style="color:#64748b;">Create your first listing to start adding pricing.</div>
+        </div>
+        <button class="btn" onclick="L_openCreate()">Add listing</button>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = myListings.map(lst => {
+    const rules = pricingByListing.get(lst.id) || [];
+    const rows = rules.length ? rules.map(r => PR_row(lst, r)).join("") : `<tr><td colspan="6" style="color:#64748b;">No pricing rules yet.</td></tr>`;
+
+    // Show the machine label if selected
+    let machineLabel = "—";
+    if (lst.ref_machine_id) {
+      const m = myMachines.find(mm => mm.id === lst.ref_machine_id);
+      machineLabel = m ? esc(machineLabelFromObj(m)) : esc(lst.ref_machine_id);
+    }
+
+    return `
+      <div class="card" style="display:flex; flex-direction:column; gap:.6rem;">
+        <div style="display:flex;justify-content:space-between;gap:.5rem;align-items:flex-start;">
+          <div>
+            <div style="font-weight:700;">${esc(lst.title)}</div>
+            <div style="color:#556;">${esc(lst.description || "")}</div>
+            <div style="margin-top:.25rem;font-size:.9rem;color:#475569;">
+              Type: <strong>${esc(lst.type || "equipment")}</strong>
+              &nbsp;·&nbsp; Status: <strong>${esc(lst.status || "active")}</strong>
+              &nbsp;·&nbsp; Machine: <strong>${machineLabel}</strong>
+            </div>
+          </div>
+          <div style="display:flex; gap:.4rem;">
+            <button class="btn btn-outline" onclick='L_openEdit(${JSON.stringify(lst)})'>Edit</button>
+            <button class="btn btn-outline" onclick='L_delete("${lst.id}")'>Delete</button>
+          </div>
+        </div>
+
+        <div class="grid" style="grid-template-columns: 1fr auto; align-items:center; margin-top:.25rem;">
+          <div style="font-weight:600; color:#334155;">Pricing rules</div>
+          <button class="btn" onclick='PR_openCreate(${JSON.stringify(lst)})'>Add pricing</button>
+        </div>
+
+        <div style="overflow:auto;">
+          <table style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="text-align:left; padding:.4rem; border-bottom:1px solid #e5e7eb;">Unit</th>
+                <th style="text-align:left; padding:.4rem; border-bottom:1px solid #e5e7eb;">Base price</th>
+                <th style="text-align:left; padding:.4rem; border-bottom:1px solid #e5e7eb;">Min qty</th>
+                <th style="text-align:left; padding:.4rem; border-bottom:1px solid #e5e7eb;">Transport</th>
+                <th style="text-align:left; padding:.4rem; border-bottom:1px solid #e5e7eb;">Currency</th>
+                <th style="text-align:right; padding:.4rem; border-bottom:1px solid #e5e7eb;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function machineLabelFromObj(m){
+  return [m.brand, m.model, m.serial_number].filter(Boolean).join(" – ") || m.id;
+}
+
+/* ---------------------- Pricing modal helpers ---------------------- */
+function PR_fillListingOptions(selectedId){
+  const sel = document.getElementById("pf_listing_id");
+  sel.innerHTML = "";
+  myListings.forEach(l => {
+    const opt = document.createElement("option");
+    opt.value = l.id;
+    opt.textContent = l.title;
+    if (selectedId && selectedId === l.id) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function PR_openCreate(listing){
+  editingRule = null;
+  document.getElementById("pricingDlgTitle").textContent = "Add pricing";
+  document.getElementById("pricingDlgSub").textContent = listing ? listing.title : "";
+  PR_fillListingOptions(listing?.id);
+  document.getElementById("pf_unit").value = "hour";
+  document.getElementById("pf_base_price").value = "";
+  document.getElementById("pf_min_qty").value = "";
+  document.getElementById("pf_transport_flat_fee").value = "";
+  document.getElementById("pf_transport_per_km").value = "";
+  document.getElementById("pf_currency").value = "EUR";
+  document.getElementById("pf_surcharges").value = "";
+  document.getElementById("pricingErr").hidden = true;
+  document.getElementById("pricingDlg").showModal();
+}
+
+function PR_openEdit(listing, rule){
+  editingRule = rule;
+  document.getElementById("pricingDlgTitle").textContent = "Edit pricing";
+  document.getElementById("pricingDlgSub").textContent = listing ? listing.title : "";
+  PR_fillListingOptions(rule.listing_id || listing?.id);
+  document.getElementById("pf_unit").value = rule.unit || "hour";
+  document.getElementById("pf_base_price").value = rule.base_price ?? "";
+  document.getElementById("pf_min_qty").value = rule.min_qty ?? "";
+  document.getElementById("pf_transport_flat_fee").value = rule.transport_flat_fee ?? "";
+  document.getElementById("pf_transport_per_km").value = rule.transport_per_km ?? "";
+  document.getElementById("pf_currency").value = rule.currency || "EUR";
+  document.getElementById("pf_surcharges").value = rule.surcharges ? JSON.stringify(rule.surcharges, null, 2) : "";
+  document.getElementById("pricingErr").hidden = true;
+  document.getElementById("pricingDlg").showModal();
+}
+
+function PR_close(){ document.getElementById("pricingDlg").close(); }
+
+/* Save (POST for create, PUT for edit) */
+async function PR_save(){
+  const err = document.getElementById("pricingErr");
+  err.hidden = true; err.textContent = "";
+
+  const listing_id = document.getElementById("pf_listing_id").value;
+  const unit = document.getElementById("pf_unit").value;
+  const base_price = parseFloat(document.getElementById("pf_base_price").value);
+  const min_qty = document.getElementById("pf_min_qty").value ? parseFloat(document.getElementById("pf_min_qty").value) : null;
+  const transport_flat_fee = document.getElementById("pf_transport_flat_fee").value ? parseFloat(document.getElementById("pf_transport_flat_fee").value) : null;
+  const transport_per_km = document.getElementById("pf_transport_per_km").value ? parseFloat(document.getElementById("pf_transport_per_km").value) : null;
+  const currency = (document.getElementById("pf_currency").value || "EUR").toUpperCase();
+  const surchargesRaw = document.getElementById("pf_surcharges").value.trim();
+
+  if (!listing_id || !unit || isNaN(base_price)) {
+    err.hidden = false; err.textContent = "Listing, unit and base price are required.";
+    return;
+  }
+
+  let surcharges = null;
+  if (surchargesRaw) {
+    try { surcharges = JSON.parse(surchargesRaw); }
+    catch { err.hidden = false; err.textContent = "Surcharges must be valid JSON."; return; }
+  }
+
+  const payload = {
+    listing_id, unit, base_price, min_qty,
+    transport_flat_fee, transport_per_km, currency, surcharges
+  };
+
+  try{
+    let r;
+    if (editingRule && editingRule.id) {
+      r = await fetch(`${API}/pricing/${editingRule.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      r = await fetch(`${API}/pricing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload)
+      });
+    }
+    if (!r.ok) {
+      const e = await r.json().catch(()=>({detail:"Save failed"}));
+      throw new Error(e.detail || "Save failed");
+    }
+    // Refresh pricing for affected listings
+    const affected = new Set();
+    if (editingRule?.listing_id) affected.add(editingRule.listing_id);
+    affected.add(listing_id);
+    for (const lid of affected) {
+      try{
+        const url = new URL(`${location.origin}${API}/pricing`);
+        url.searchParams.set("listing_id", lid);
+        const pr = await fetch(url, { headers: authHeaders() });
+        const arr = pr.ok ? await pr.json() : [];
+        pricingByListing.set(lid, arr);
+      }catch{}
+    }
+    renderListings();
+    PR_close();
+    showMsg("ok", "Pricing saved.");
+  }catch(e){
+    err.hidden = false; err.textContent = e.message || "Could not save.";
+  }
+}
+
+async function PR_delete(id, listingId){
+  if (!confirm("Delete this pricing rule?")) return;
+  try{
+    const r = await fetch(`${API}/pricing/${id}`, {
+      method: "DELETE",
+      headers: authHeaders()
+    });
+    if (!r.ok) throw new Error("Delete failed");
+    const url = new URL(`${location.origin}${API}/pricing`);
+    url.searchParams.set("listing_id", listingId);
+    const pr = await fetch(url, { headers: authHeaders() });
+    const arr = pr.ok ? await pr.json() : [];
+    pricingByListing.set(listingId, arr);
+    renderListings();
+    showMsg("ok", "Pricing deleted.");
+  }catch(e){
+    showMsg("error", e.message || "Could not delete.");
+  }
+}
+</script>
+{% endblock %}
