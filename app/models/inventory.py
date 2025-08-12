@@ -66,12 +66,19 @@ class Listing(Base):
         CheckConstraint("status IN ('active','paused','archived')", name="listings_status_ck"),
     )
 
+class PricingUnit(str, enum.Enum):
+    hour = "hour"
+    hectare = "hectare"
+    km = "km"
+    job = "job"
+    day = "day"
+
 class PricingRule(Base):
     __tablename__ = "pricing_rules"
     id = id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     listing_id = Column(PGUUID(as_uuid=True), default=uuid.uuid4)
 
-    unit = Column(String, nullable=False)
+    unit = Column(PGEnum(PricingUnit, name="pricing_unit", create_type=False), nullable=False)
     base_price = Column(Float, nullable=False)
     min_qty = Column(Float)
     transport_flat_fee = Column(Float)
