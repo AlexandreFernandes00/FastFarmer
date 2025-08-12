@@ -3,7 +3,7 @@
 {% block content %}
 
 <h2>Marketplace</h2>
-<p style="color:#475569;margin-top:-.2rem">Browse equipment & services. Select a listing and request work for one of your fields.</p>
+<p style="color:#475569;margin-top:-.25rem;">Find equipment & services from other providers. Your own listings are hidden.</p>
 
 <!-- Filters -->
 <div class="card" style="margin-top:.75rem;">
@@ -15,7 +15,6 @@
       <select id="unit">
         <option value="">Any</option>
         <option value="hour">per hour</option>
-        <option value="day">per day</option>
         <option value="hectare">per hectare</option>
         <option value="km">per km</option>
         <option value="job">per job</option>
@@ -63,10 +62,10 @@
         <label>Time window
           <select id="req_window">
             <option value="">—</option>
-            <option>morning</option>
-            <option>afternoon</option>
-            <option>evening</option>
-            <option>flexible</option>
+            <option value="morning">morning</option>
+            <option value="afternoon">afternoon</option>
+            <option value="evening">evening</option>
+            <option value="flexible">flexible</option>
           </select>
         </label>
       </div>
@@ -90,6 +89,7 @@
 const API = "/api/v1";
 let token = localStorage.getItem("token");
 let me = null;
+let excludeProviderId = null;   // used to hide my own listings
 let listings = [];
 let fields = [];
 let selectedListing = null;
@@ -109,16 +109,23 @@ function showMsg(type, text){
   if (topBar) topBar.value = urlQ;
   document.getElementById("q").value = urlQ;
 
-  // Auth + client fields
+  // Auth + client fields + provider id for exclusion
   await MM_loadAuth();
   await MM_loadFields();
 
-  // Listings (public, already includes pricing)
+  // Listings (public, include pricing, exclude my provider id)
   await MM_loadListings();
 
   // Render + bind filters
   MM_render();
-  document.getElementById("applyFilters").addEventListener("click", MM_render);
+  document.getElementById("applyFilters").addEventListener("click", () => {
+    // push q to URL for sharing
+    const q = (document.getElementById("q").value || "").trim();
+    const u = new URL(location.href);
+    if (q) u.searchParams.set("q", q); else u.searchParams.delete("q");
+    history.replaceState(null, "", u.toString());
+    MM_render();
+  });
   document.getElementById("clearFilters").addEventListener("click", () => {
     document.getElementById("q").value = "";
     document.getElementById("unit").value = "";
@@ -128,15 +135,17 @@ function showMsg(type, text){
 })();
 
 async function MM_loadAuth(){
-  me = null;
+  me = null; excludeProviderId = null;
   if (!token) return;
   try{
     const r = await fetch(`${API}/auth/me`, { headers: authHeaders() });
     if (!r.ok) throw 0;
     me = await r.json();
+    // Try to find provider profile id in your /auth/me shape
+    excludeProviderId = me?.provider_profile?.id || me?.provider?.id || null;
   }catch{
     localStorage.removeItem("token");
-    token = null; me = null;
+    token = null; me = null; excludeProviderId = null;
   }
 }
 
@@ -144,29 +153,25 @@ async function MM_loadFields(){
   fields = [];
   if (!token || !me?.is_client) return;
   try{
-    const r = await fetch(`${API}/fields/`, { headers: authHeaders() });
+    let r = await fetch(`${API}/fields/me`, { headers: authHeaders() });
+    if (!r.ok) r = await fetch(`${API}/fields/`, { headers: authHeaders() });
     fields = r.ok ? await r.json() : [];
   }catch{}
 }
 
 async function MM_loadListings(){
   try{
-    // Use public endpoint, include pricing
     const url = new URL(`${location.origin}${API}/listings/public`);
     const q = (document.getElementById("q").value || "").trim();
     if (q) url.searchParams.set("q", q);
     url.searchParams.set("include_pricing", "true");
-
+    if (excludeProviderId) url.searchParams.set("exclude_provider_id", excludeProviderId);
     const r = await fetch(url.toString());
     listings = r.ok ? await r.json() : [];
   }catch{ listings = []; }
 }
 
 /* ---------- Pricing rendering ---------- */
-/* pricing model fields:
-    owner_type, owner_id, unit, base_price, min_qty?,
-    transport_flat_fee?, transport_per_km?, currency, surcharges?
-*/
 function formatPriceRule(p){
   const cur = p.currency || "EUR";
   const base = (p.base_price != null) ? `${Number(p.base_price).toLocaleString()} ${cur}` : "";
@@ -182,13 +187,12 @@ function formatPriceRule(p){
 
 function summarizePrices(pricing){
   if (!Array.isArray(pricing) || pricing.length === 0) return "Ask for a quote";
-  // prefer listing-level first, then machine-level; show up to 3 lines
+  // Sort primarily by unit name; then by base price
   const sorted = pricing.slice().sort((a,b)=>{
-    const aKey = (a.owner_type === "listing" ? 0 : 1);
-    const bKey = (b.owner_type === "listing" ? 0 : 1);
-    if (aKey !== bKey) return aKey - bKey;
-    // then by unit
-    return String(a.unit||"").localeCompare(String(b.unit||""));
+    const u = String(a.unit||"").localeCompare(String(b.unit||""));
+    if (u !== 0) return u;
+    const ap = a.base_price ?? 0, bp = b.base_price ?? 0;
+    return ap - bp;
   });
   return sorted.slice(0,3).map(formatPriceRule).join(" · ");
 }
@@ -198,7 +202,6 @@ function MM_card(listing){
   const pricing = listing.pricing || [];
   const priceLine = summarizePrices(pricing);
 
-  // Build optional expandable details for all price rules
   const detailsId = `pricing_${listing.id}`;
   const detailRows = pricing.map(p => `<li>${esc(formatPriceRule(p))}</li>`).join("");
   const hasMore = pricing.length > 3;
@@ -209,6 +212,7 @@ function MM_card(listing){
       <div style="font-weight:600">${esc(listing.title)}</div>
       <div style="color:#555">${esc(listing.description ?? "")}</div>
     </div>
+
     <div style="font-size:.9rem;color:#1e293b">${esc(priceLine)}</div>
 
     ${pricing.length ? `
@@ -223,21 +227,19 @@ function MM_card(listing){
     ` : ``}
 
     <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:auto;">
+      <a class="btn btn-outline" href="/listing/${listing.id}">Details</a>
       <button class="btn" onclick='MM_openRequest(${JSON.stringify(listing)})'>Request this</button>
     </div>
   </div>`;
 }
 
 function MM_render(){
-  // Re-load listings so server search (?q=) applies
   MM_loadListings().then(() => {
     let rows = listings.slice();
 
     // Client-side refine by unit
     const unit = document.getElementById("unit").value;
-    if (unit) {
-      rows = rows.filter(l => Array.isArray(l.pricing) && l.pricing.some(p => p.unit === unit));
-    }
+    if (unit) rows = rows.filter(l => Array.isArray(l.pricing) && l.pricing.some(p => p.unit === unit));
 
     // Local text refine (in addition to server-side)
     const q = (document.getElementById("q").value || "").toLowerCase().trim();
@@ -287,12 +289,16 @@ function MM_openRequest(listing){
       form.style.display = "block";
       sendBtn.style.display = "inline-flex";
       sel.innerHTML = "";
-      fields.forEach(f => {
-        const opt = document.createElement("option");
-        opt.value = f.id;
-        opt.textContent = `${f.name} (${Number(f.area_ha).toFixed(2)} ha)`;
-        sel.appendChild(opt);
-      });
+      fields
+        .slice()
+        .sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")))
+        .forEach(f => {
+          const opt = document.createElement("option");
+          const area = (f.area_ha ?? f.area_ha_cached);
+          opt.value = f.id;
+          opt.textContent = [f.name, area ? `${area} ha` : null].filter(Boolean).join(" · ");
+          sel.appendChild(opt);
+        });
     }
     document.getElementById("requestDlg").showModal();
   };
@@ -314,14 +320,21 @@ async function MM_submitRequest(){
 
   const field_id = document.getElementById("req_field").value;
   if (!field_id) { showMsg("error", "Please choose a field."); return; }
-  const desired_date = document.getElementById("req_date").value || null;
+
+  const desired_date_raw = document.getElementById("req_date").value; // local
   const time_window  = document.getElementById("req_window").value || null;
   const notes        = (document.getElementById("req_notes").value || "").trim() || null;
+
+  let desired_date = null;
+  if (desired_date_raw) {
+    const dt = new Date(desired_date_raw);
+    desired_date = dt.toISOString(); // TIMESTAMPTZ-friendly
+  }
 
   const payload = { listing_id: selectedListing.id, field_id, desired_date, time_window, notes };
 
   try{
-    const r = await fetch(`${API}/requests/`, {
+    const r = await fetch(`${API}/requests`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(payload)
@@ -331,7 +344,7 @@ async function MM_submitRequest(){
       showMsg("error", e.detail || "Could not create request");
       return;
     }
-    showMsg("ok", "Request sent. Providers can now quote.");
+    showMsg("ok", "Request sent. You can track it in your dashboard.");
     MM_closeRequest();
   }catch{
     showMsg("error", "Network error creating request.");

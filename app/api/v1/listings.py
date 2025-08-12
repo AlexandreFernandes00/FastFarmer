@@ -148,11 +148,20 @@ def public_listings(
     include_pricing: bool = Query(True, description="Attach pricing rules"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    exclude_provider_id: Optional[UUID] = Query(None, description="Exclude listings from this provider id"),
 ) -> List[Dict[str, Any]]:
     order_col = getattr(Listing, "created_at", Listing.id)
-    stmt = sa.select(Listing).where(
-        sa.or_(Listing.status == "active", Listing.status.is_(None))
-    ).order_by(sa.desc(order_col)).limit(limit).offset(offset)
+    conditions = [sa.or_(Listing.status == "active", Listing.status.is_(None))]
+    if exclude_provider_id:
+        conditions.append(Listing.provider_id != exclude_provider_id)
+
+    stmt = (
+        sa.select(Listing)
+        .where(*conditions)
+        .order_by(sa.desc(order_col))
+        .limit(limit)
+        .offset(offset)
+    )
 
     if q:
         like = f"%{q.lower()}%"

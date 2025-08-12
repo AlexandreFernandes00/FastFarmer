@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -40,3 +40,7 @@ def provider_inbox(request: Request):
 @router.get("/marketplace")
 def marketplace_page(request: Request):
     return templates.TemplateResponse("marketplace.html", {"request": request})
+
+@router.get("/request")
+def request_page(request: Request):
+    return templates.TemplateResponse("request.html", {"request": request})
