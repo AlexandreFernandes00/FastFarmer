@@ -68,7 +68,7 @@ let fieldCache = {};     // id -> name/area (optional)
 
 async function loadMine(){
   try{
-    const r = await fetch(`${API}/requests/mine`, { headers: ah() });
+    const r = await fetch(`${API}/requests/me`, { headers: ah() });
     if (!r.ok) throw new Error("Failed to load your requests");
     mine = await r.json();
   }catch(e){
