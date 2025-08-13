@@ -45,6 +45,11 @@
     <button class="btn" type="submit">Send request</button>
   </div>
 </form>
+<!-- In the row renderer, add a button to view quotes -->
+<td style="text-align:right; padding:.55rem;border-bottom:1px solid #eef;">
+  <button class="btn btn-outline" onclick='viewQuotes("${r.id}")'>Quotes</button>
+  <a class="btn btn-outline" href="/request?listing_id=${r.listing_id}">Re-request</a>
+</td>
 
 {% endblock %}
 
@@ -145,5 +150,62 @@ async function submitRequest(){
     showMsg("error", e.message || "Could not send request.");
   }
 }
+async function viewQuotes(requestId){
+  try{
+    const r = await fetch(`/api/v1/quotes/for-request/${requestId}`, { headers: ah() });
+    if (!r.ok) throw new Error("Failed to load quotes");
+    const qs = await r.json();
+    if (!qs.length){ msg("error","No quotes yet for this request."); return; }
+
+    // Simple chooser dialog
+    const html = qs.map(q => {
+      const items = (q.items||[]).map(it => `- ${esc(it.description)}: ${it.line_total} ${q.currency}`).join("<br>");
+      return `
+        <div class="card" style="margin:.5rem 0;">
+          <div><strong>Total:</strong> ${q.total} ${q.currency} · <strong>Status:</strong> ${q.status}</div>
+          <div style="color:#475569; margin-top:.25rem;">${items}</div>
+          <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem;">
+            ${q.status === "offered" ? `<button class="btn" onclick='acceptQuote("${q.id}")'>Accept</button>` : ``}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    const container = document.createElement("div");
+    container.innerHTML = `
+      <dialog class="card" style="max-width:680px;width:95%;">
+        <h3>Quotes for request</h3>
+        <div style="max-height:60vh; overflow:auto; margin-top:.5rem;">${html}</div>
+        <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.75rem;">
+          <button class="btn btn-outline" onclick="this.closest('dialog').close()">Close</button>
+        </div>
+      </dialog>`;
+    document.body.appendChild(container);
+    const dlg = container.querySelector("dialog");
+    dlg.addEventListener("close", ()=> container.remove());
+    dlg.showModal();
+  }catch(e){
+    msg("error", e.message || "Could not load quotes.");
+  }
+}
+
+async function acceptQuote(quoteId){
+  try{
+    const r = await fetch(`/api/v1/quotes/${quoteId}/accept`, { method:"POST", headers: ah() });
+    if (!r.ok){
+      const e = await r.json().catch(()=>({detail:"Failed to accept"}));
+      msg("error", e.detail || "Failed to accept");
+      return;
+    }
+    msg("ok","Quote accepted.");
+    // refresh the table
+    await loadMine(); await hydrateListings(); render();
+    // close any open dialog
+    const openDlg = document.querySelector("dialog[open]"); if (openDlg) openDlg.close();
+  }catch{
+    msg("error","Network error.");
+  }
+}
+
 </script>
 {% endblock %}

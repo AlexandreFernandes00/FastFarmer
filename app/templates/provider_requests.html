@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Incoming Requests · FastFarmer{% endblock %}
+{% block content %}
+
+<h2>Incoming Requests</h2>
+<p style="color:#475569;margin-top:-.25rem;">Review open/quoted requests for your listings and send quotes.</p>
+
+<div id="msg" class="result" hidden></div>
+
+<div id="list" class="grid" style="grid-template-columns: repeat(auto-fit,minmax(340px,1fr)); gap:1rem; margin-top:1rem;">
+  <div class="card"><p>Loading…</p></div>
+</div>
+
+<!-- Quote modal -->
+<dialog id="quoteDlg" class="card" style="max-width:640px;width:95%;">
+  <form method="dialog" onsubmit="return false;" style="margin:0;">
+    <h3>Send quote</h3>
+    <p id="rqSummary" style="color:#555;margin-top:-.25rem;"></p>
+
+    <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:.75rem; margin-top:.5rem;">
+      <label>Currency
+        <input id="q_currency" value="EUR" maxlength="3"/>
+      </label>
+      <label>Transport fee
+        <input id="q_transport" type="number" step="0.01" min="0" placeholder="optional"/>
+      </label>
+      <label>Expires at
+        <input id="q_expires" type="datetime-local" />
+      </label>
+    </div>
+
+    <label style="margin-top:.5rem;">Message
+      <textarea id="q_message" rows="2" placeholder="Notes for the client…"></textarea>
+    </label>
+
+    <div class="card" style="margin-top:.75rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <strong>Line items</strong>
+        <button class="btn btn-outline" onclick="addItem()">Add line</button>
+      </div>
+      <div id="items" style="display:flex; flex-direction:column; gap:.5rem; margin-top:.5rem;"></div>
+    </div>
+
+    <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.75rem;">
+      <button class="btn btn-outline" onclick="closeQuote()">Cancel</button>
+      <button class="btn" onclick="sendQuote()">Send quote</button>
+    </div>
+  </form>
+</dialog>
+
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+const API="/api/v1";
+let token=localStorage.getItem("token");
+function ah(){ return token ? {"Authorization":"Bearer "+token} : {}; }
+function msg(type,text){ const m=document.getElementById("msg"); m.className="result "+(type==="ok"?"ok":"error"); m.hidden=false; m.textContent=text; }
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&quot;',"'":'&#39;'}[c])); }
+
+let mine=[], selected=null;
+
+(async function boot(){
+  if(!token){ msg("error","Please log in as a provider."); document.getElementById("list").innerHTML=`<div class="card"><p>Not logged in.</p></div>`; return; }
+  await loadIncoming();
+  render();
+})();
+
+async function loadIncoming(){
+  // You likely have an endpoint for provider's incoming requests. If not, reuse /api/v1/requests?scope=provider
+  // For now, we’ll fetch all "open/quoted" and filter client-side via listing ownership on backend (your API should enforce).
+  try{
+    const r = await fetch(`${API}/provider/requests?status=open,quoted`, { headers: ah() });
+    mine = r.ok ? await r.json() : [];
+  }catch{ mine=[]; }
+}
+
+function card(r){
+  const d = new Date(r.created_at || r.created || Date.now());
+  return `
+    <div class="card" style="display:flex;flex-direction:column;gap:.5rem;">
+      <div><strong>${esc(r.listing_title || r.listing_id)}</strong></div>
+      <div style="color:#475569;">Field: ${esc(r.field_name || r.field_id)}</div>
+      <div style="color:#475569;">Desired: ${esc(r.desired_date || "—")}</div>
+      <div>Status: <strong>${esc(r.status)}</strong></div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+        <a class="btn btn-outline" href="/request?listing_id=${r.listing_id}">Open</a>
+        <button class="btn" onclick='openQuote(${JSON.stringify(r)})'>Quote</button>
+      </div>
+    </div>
+  `;
+}
+
+function render(){
+  const root = document.getElementById("list");
+  root.innerHTML = mine.length ? mine.map(card).join("") : `<div class="card"><p>No incoming requests.</p></div>`;
+}
+
+/* ---------- Quote modal ---------- */
+function el(tag, attrs={}, html=""){
+  const e = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs)) e.setAttribute(k,v);
+  if (html) e.innerHTML = html;
+  return e;
+}
+function addItem(pref){
+  const wrap = el("div", {class:"grid", style:"grid-template-columns: 1fr 100px 120px 140px; gap:.5rem; align-items:end;"});
+  wrap.innerHTML = `
+    <label>Desc<input class="qi_desc" placeholder="e.g. 5 ha plowing"/></label>
+    <label>Unit<input class="qi_unit" placeholder="hectare"/></label>
+    <label>Qty<input class="qi_qty" type="number" step="0.01" min="0"/></label>
+    <label>Unit price<input class="qi_price" type="number" step="0.01" min="0"/></label>
+    <div style="grid-column: 1 / -1; display:flex; gap:.4rem;">
+      <label>Kind
+        <select class="qi_kind">
+          <option value="base">base</option>
+          <option value="transport_km">transport_km</option>
+          <option value="surcharge">surcharge</option>
+          <option value="misc">misc</option>
+        </select>
+      </label>
+      <button class="btn btn-outline" onclick="this.closest('div').parentElement.remove()">Remove</button>
+    </div>
+  `;
+  if (pref){
+    wrap.querySelector(".qi_desc").value = pref.description || "";
+    wrap.querySelector(".qi_unit").value = pref.unit || "";
+    wrap.querySelector(".qi_qty").value = pref.qty || "";
+    wrap.querySelector(".qi_price").value = pref.unit_price || "";
+    wrap.querySelector(".qi_kind").value = pref.kind || "base";
+  }
+  document.getElementById("items").appendChild(wrap);
+}
+
+function openQuote(r){
+  selected = r;
+  document.getElementById("rqSummary").textContent = `${r.listing_title || r.listing_id} · field ${r.field_name || r.field_id}`;
+  document.getElementById("q_currency").value = "EUR";
+  document.getElementById("q_transport").value = "";
+  document.getElementById("q_expires").value = "";
+  document.getElementById("q_message").value = "";
+  document.getElementById("items").innerHTML = "";
+  addItem();
+  document.getElementById("quoteDlg").showModal();
+}
+
+function closeQuote(){ document.getElementById("quoteDlg").close(); selected=null; }
+
+async function sendQuote(){
+  if (!selected) return;
+
+  const cur = (document.getElementById("q_currency").value || "EUR").toUpperCase();
+  const trf = document.getElementById("q_transport").value ? Number(document.getElementById("q_transport").value) : null;
+  const expRaw = document.getElementById("q_expires").value;
+  const msgTxt = document.getElementById("q_message").value || null;
+
+  const itemsEl = Array.from(document.querySelectorAll("#items > div"));
+  const items = [];
+  for (const w of itemsEl){
+    const desc = w.querySelector(".qi_desc").value.trim();
+    if (!desc){ msg("error","Each line must have a description."); return; }
+    const unit = w.querySelector(".qi_unit").value || null;
+    const qty = w.querySelector(".qi_qty").value ? Number(w.querySelector(".qi_qty").value) : null;
+    const up  = w.querySelector(".qi_price").value ? Number(w.querySelector(".qi_price").value) : null;
+    let lt = 0;
+    if (qty != null && up != null) lt = qty * up;
+    else if (up != null) lt = up;
+    else { msg("error","Provide qty & unit price, or at least a unit price."); return; }
+    items.push({
+      kind: w.querySelector(".qi_kind").value,
+      description: desc, unit, qty, unit_price: up, line_total: lt
+    });
+  }
+
+  const payload = {
+    request_id: selected.id || selected.request_id,
+    currency: cur,
+    message: msgTxt,
+    items,
+    transport_fee: trf,
+    expires_at: expRaw ? new Date(expRaw).toISOString() : null
+  };
+
+  try{
+    const r = await fetch(`${API}/quotes`, {
+      method: "POST",
+      headers: { "Content-Type":"application/json", ...ah() },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok){
+      const e = await r.json().catch(()=>({detail:"Failed to send quote"}));
+      msg("error", e.detail || "Failed to send quote");
+      return;
+    }
+    msg("ok","Quote sent.");
+    closeQuote();
+  }catch{
+    msg("error","Network error sending quote.");
+  }
+}
+</script>
+{% endblock %}

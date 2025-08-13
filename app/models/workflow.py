@@ -1,7 +1,8 @@
 import uuid
 import enum 
-from sqlalchemy import Column, String, Text, DateTime, Numeric, ForeignKey, CheckConstraint, text, Enum as PgEnum
+from sqlalchemy import Column, String, Text, DateTime, Numeric, ForeignKey, CheckConstraint, text, Enum as PgEnum, JSON, TIMESTAMP
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
+from sqlalchemy.orm import relationship
 from ..database import Base
 
 class RequestStatus(str, enum.Enum):
@@ -56,3 +57,44 @@ class Quote(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (CheckConstraint("status IN ('sent','withdrawn','accepted','expired')", name="quotes_status_ck"),)
+
+
+class QuoteStatus(str, enum.Enum):
+    offered   = "offered"
+    withdrawn = "withdrawn"
+    accepted  = "accepted"
+    rejected  = "rejected"
+    expired   = "expired"
+
+class Quote(Base):
+    __tablename__ = "quotes"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id = Column(PGUUID(as_uuid=True), ForeignKey("work_requests.id", ondelete="CASCADE"), nullable=False)
+    provider_id = Column(PGUUID(as_uuid=True), ForeignKey("provider_profiles.id", ondelete="CASCADE"), nullable=False)
+
+    currency = Column(String(3), nullable=False, default="EUR")
+    message = Column(Text)
+    subtotal = Column(Numeric(12,2), nullable=False, default=0)
+    transport_fee = Column(Numeric(12,2))
+    surcharges = Column(JSON)
+    total = Column(Numeric(12,2), nullable=False, default=0)
+    status = Column(PgEnum(QuoteStatus, name="quote_status", create_type=False), nullable=False, default=QuoteStatus.offered)
+    expires_at = Column(TIMESTAMP(timezone=True))
+
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()"))
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()"))
+
+    items = relationship("QuoteItem", back_populates="quote", cascade="all, delete-orphan")
+
+class QuoteItem(Base):
+    __tablename__ = "quote_items"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    quote_id = Column(PGUUID(as_uuid=True), ForeignKey("quotes.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String(32), nullable=False)      # 'base','transport_km','surcharge','misc'
+    description = Column(Text, nullable=False)
+    unit = Column(String(24))
+    qty = Column(Numeric(12,2))
+    unit_price = Column(Numeric(12,2))
+    line_total = Column(Numeric(12,2), nullable=False)
+
+    quote = relationship("Quote", back_populates="items")

@@ -48,3 +48,8 @@ def request_page(request: Request):
 @router.get("/requests")  # list my requests
 def my_requests_page(request: Request):
     return templates.TemplateResponse("requests.html", {"request": request})
+
+# app/pages.py
+@router.get("/provider/requests")
+def provider_requests_page(request: Request):
+    return templates.TemplateResponse("provider_requests.html", {"request": request})
