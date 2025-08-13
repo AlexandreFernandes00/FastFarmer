@@ -42,3 +42,11 @@ def require_admin(current: User = Depends(get_current_user)) -> User:
     if not current.is_admin:
         raise HTTPException(status_code=403, detail="Admin role required")
     return current
+
+def require_user(current_user: User = Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
+    return current_user
