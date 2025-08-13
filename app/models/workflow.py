@@ -4,6 +4,7 @@ from sqlalchemy import Column, String, Text, DateTime, Numeric, ForeignKey, Chec
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 from sqlalchemy.orm import relationship
 from ..database import Base
+import sqlalchemy as sa
 
 class RequestStatus(str, enum.Enum):
     pending = "pending"
